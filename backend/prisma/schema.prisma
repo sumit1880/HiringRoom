@@ -1,0 +1,171 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  USER
+  ADMIN
+}
+
+enum InterviewType {
+  DSA
+  BEHAVIORAL
+  SYSTEM_DESIGN
+}
+
+enum InterviewStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+enum Role {
+  USER
+  AI
+}
+
+enum EmbeddingStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  password  String
+
+  role      UserRole @default(USER)
+  isActive  Boolean  @default(true)
+
+  sessions  InterviewSession[]
+  resumes   Resume[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model InterviewSession {
+  id           String            @id @default(cuid())
+
+  title        String
+
+  type         InterviewType
+
+  status       InterviewStatus   @default(IN_PROGRESS)
+
+  questions InterviewQuestion[]
+
+  overallScore Float?
+
+  startedAt    DateTime          @default(now())
+
+  endedAt      DateTime?
+
+  userId       String
+
+  user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  messages     Message[]
+
+  feedback     Feedback?
+
+  createdAt    DateTime          @default(now())
+
+  updatedAt    DateTime          @updatedAt
+}
+
+model Message {
+  id         String   @id @default(cuid())
+
+  role       Role
+
+  content    String   @db.Text
+
+  tokenCount Int?
+
+  createdAt  DateTime @default(now())
+
+  sessionId  String
+  session    InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+}
+
+model Resume {
+  id               String            @id @default(cuid())
+
+  originalName     String
+
+  mimeType         String
+
+  fileUrl          String
+
+  extractedText    String?           @db.Text
+
+  embeddingStatus  EmbeddingStatus   @default(PENDING)
+
+  uploadedAt       DateTime          @default(now())
+
+  userId           String
+  user             User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+
+}
+
+model Feedback {
+  id                  String   @id @default(cuid())
+
+  strengths           String   @db.Text
+
+  weaknesses          String   @db.Text
+
+  suggestions         String   @db.Text
+
+  communicationScore  Float
+
+  technicalScore      Float
+
+  overallScore        Float
+
+  sessionId           String   @unique
+
+  session             InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model InterviewQuestion {
+  id             String   @id @default(cuid())
+  questionNumber Int
+  question       String
+  answer         String?
+  
+  evaluation QuestionEvaluation?
+  sessionId String
+  session   InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+}
+
+model QuestionEvaluation {
+  id                 String   @id @default(cuid())
+
+  technicalScore     Int
+  communicationScore Int
+  confidenceScore    Int
+
+ strengths String[] @default([])
+weaknesses String[] @default([])
+  feedback           String   @db.Text
+
+  questionId         String   @unique
+  question           InterviewQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  createdAt          DateTime @default(now())
+}

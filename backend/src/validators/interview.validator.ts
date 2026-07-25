@@ -11,5 +11,24 @@ export const createInterviewSchema = z.object({
     "DSA",
     "BEHAVIORAL",
     "SYSTEM_DESIGN",
+    "CASE_STUDY",
   ]),
+
+  difficulty: z
+    .enum(["easy", "medium", "hard"])
+    .default("medium"),
+
+  resumeId: z
+    .string()
+    .trim()
+    .min(1, "resumeId is required"),
+
+  durationMinutes: z
+    .union([
+      z.literal(15),
+      z.literal(30),
+      z.literal(45),
+      z.literal(60),
+    ])
+    .default(30),
 });

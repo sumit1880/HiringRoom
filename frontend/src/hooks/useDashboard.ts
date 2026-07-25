@@ -1,32 +1,15 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query"
+import { dashboardService } from "@/services/dashboardService"
 
-import { getCurrentUser } from "../api/user.api";
-import { getResumes } from "../api/resume.api";
-import { getInterviews } from "../api/interview.api";
-
-export function useDashboard() {
-  const userQuery = useQuery({
-    queryKey: ["user"],
-    queryFn: getCurrentUser,
-  });
-
-  const resumeQuery = useQuery({
-    queryKey: ["resumes"],
-    queryFn: getResumes,
-  });
-
-  const interviewQuery = useQuery({
-    queryKey: ["interviews"],
-    queryFn: getInterviews,
-  });
-
-  return {
-    user: userQuery.data,
-    resumes: resumeQuery.data ?? [],
-    interviews: interviewQuery.data ?? [],
-    isLoading:
-      userQuery.isLoading ||
-      resumeQuery.isLoading ||
-      interviewQuery.isLoading,
-  };
+export function useDashboardStats() {
+  return useQuery({ queryKey: ["dashboard", "stats"], queryFn: dashboardService.getStats })
+}
+export function useRecentSessions() {
+  return useQuery({ queryKey: ["dashboard", "recent-sessions"], queryFn: dashboardService.getRecentSessions })
+}
+export function useAchievements() {
+  return useQuery({ queryKey: ["dashboard", "achievements"], queryFn: dashboardService.getAchievements })
+}
+export function useScoreTrend() {
+  return useQuery({ queryKey: ["dashboard", "score-trend"], queryFn: dashboardService.getScoreTrend })
 }

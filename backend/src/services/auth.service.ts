@@ -1,66 +1,74 @@
-import bcrypt from "bcrypt";
+import { OAuth2Client } from "google-auth-library";
+
 import { prisma } from "../config/prisma.js";
+import { env } from "../config/env.js";
 import { ApiError } from "../utils/ApiError.js";
-
-interface RegisterUserInput {
-  name: string;
-  email: string;
-  password: string;
-}
-
-export async function registerUser(data: RegisterUserInput) {
-  const existingUser = await prisma.user.findUnique({
-    where: {
-      email: data.email,
-    },
-  });
-
-  if (existingUser) {
-    throw new ApiError(409, "Email already registered");
-  }
-
-  const hashedPassword = await bcrypt.hash(data.password, 10);
-
-  const user = await prisma.user.create({
-    data: {
-      name: data.name,
-      email: data.email,
-      password: hashedPassword,
-    },
-  });
-
-  return {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-  };
-}
-
 import { generateToken } from "../utils/jwt.js";
 
-interface LoginUserInput {
-  email: string;
-  password: string;
+const googleClient = new OAuth2Client(env.GOOGLE_CLIENT_ID);
+
+interface GoogleAuthInput {
+  idToken: string;
 }
 
-export async function loginUser(data: LoginUserInput) {
-  const user = await prisma.user.findUnique({
-    where: {
-      email: data.email,
-    },
-  });
+export async function authenticateWithGoogle(data: GoogleAuthInput) {
+  let ticket;
 
-  if (!user) {
-    throw new ApiError(401, "Invalid email or password");
+  try {
+    ticket = await googleClient.verifyIdToken({
+      idToken: data.idToken,
+      audience: env.GOOGLE_CLIENT_ID,
+    });
+  } catch {
+    throw new ApiError(401, "Invalid Google token");
   }
 
-  const isPasswordValid = await bcrypt.compare(
-    data.password,
-    user.password
-  );
+  const payload = ticket.getPayload();
 
-  if (!isPasswordValid) {
-    throw new ApiError(401, "Invalid email or password");
+  if (!payload || !payload.email) {
+    throw new ApiError(401, "Invalid Google token");
+  }
+
+  const { sub: googleId, email, name, picture, email_verified } = payload;
+
+  if (!email_verified) {
+    throw new ApiError(401, "Google email is not verified");
+  }
+
+  // Look up by googleId first, then fall back to email so an existing
+  // account (created before this migration) gets linked instead of
+  // duplicated — this preserves its existing resumes/interview sessions.
+  let user = await prisma.user.findUnique({ where: { googleId } });
+
+  if (!user) {
+    user = await prisma.user.findUnique({ where: { email } });
+
+    if (user) {
+      user = await prisma.user.update({
+        where: { id: user.id },
+        data: {
+          googleId,
+          profileImage: picture ?? user.profileImage,
+          authProvider: "GOOGLE",
+        },
+      });
+    }
+  }
+
+  if (!user) {
+    user = await prisma.user.create({
+      data: {
+        name: name ?? email.split("@")[0],
+        email,
+        googleId,
+        profileImage: picture,
+        authProvider: "GOOGLE",
+      },
+    });
+  }
+
+  if (!user.isActive) {
+    throw new ApiError(403, "This account has been deactivated");
   }
 
   const token = generateToken({
@@ -70,12 +78,12 @@ export async function loginUser(data: LoginUserInput) {
 
   return {
     token,
-
     user: {
       id: user.id,
       name: user.name,
       email: user.email,
       role: user.role,
+      profileImage: user.profileImage,
     },
   };
 }

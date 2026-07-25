@@ -9,6 +9,7 @@ import {
   deleteInterview,
   startInterview,
   answerInterviewQuestion,
+  getInterviewFeedback,
 } from "../controllers/interview.controller.js";
 
 const router = Router();
@@ -29,5 +30,7 @@ router.patch("/:id/complete", completeInterview);
 router.delete("/:id", deleteInterview);
 
 router.post("/:id/answer", answerInterviewQuestion);
+
+router.get("/:id/feedback", getInterviewFeedback);
 
 export default router;

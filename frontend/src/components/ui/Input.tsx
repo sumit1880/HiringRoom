@@ -1,47 +1,28 @@
-import type { InputHTMLAttributes } from "react";
-import { cn } from "../../utils/cn";
+import * as React from "react"
+import { cn } from "@/lib/utils"
 
-interface InputProps
-  extends InputHTMLAttributes<HTMLInputElement> {
-  label?: string;
-  error?: string;
+export interface InputProps extends React.InputHTMLAttributes<HTMLInputElement> {
+  error?: boolean
 }
 
-export default function Input({
-  label,
-  error,
-  className,
-  ...props
-}: InputProps) {
-  return (
-    <div className="space-y-2">
-      {label && (
-        <label className="text-sm font-medium text-slate-300">
-          {label}
-        </label>
-      )}
-
+const Input = React.forwardRef<HTMLInputElement, InputProps>(
+  ({ className, type, error, ...props }, ref) => {
+    return (
       <input
+        type={type}
         className={cn(
-          "w-full rounded-2xl",
-          "border border-slate-700",
-          "bg-slate-900",
-          "px-4 py-3",
-          "text-white",
-          "placeholder:text-slate-500",
-          "transition-all duration-300",
-          "focus:border-blue-500",
-          "focus:ring-2 focus:ring-blue-500/30",
+          "flex h-12 w-full rounded-xl border bg-white/[0.03] px-4 py-2 text-sm text-foreground placeholder:text-muted-foreground transition-colors duration-200",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:border-transparent",
+          "disabled:cursor-not-allowed disabled:opacity-50",
+          error ? "border-destructive/60 focus-visible:ring-destructive" : "border-white/10 hover:border-white/20",
           className
         )}
+        ref={ref}
         {...props}
       />
+    )
+  }
+)
+Input.displayName = "Input"
 
-      {error && (
-        <p className="text-sm text-red-400">
-          {error}
-        </p>
-      )}
-    </div>
-  );
-}
+export { Input }

@@ -19,6 +19,8 @@ export const env = {
 
   JWT_SECRET: requireEnv("JWT_SECRET"),
 
+  GOOGLE_CLIENT_ID: requireEnv("GOOGLE_CLIENT_ID"),
+
   GEMINI_API_KEY: requireEnv("GEMINI_API_KEY"),
 
   OPENROUTER_API_KEY: requireEnv("OPENROUTER_API_KEY"),
@@ -28,6 +30,4 @@ export const env = {
   CHROMA_HOST: requireEnv("CHROMA_HOST"),
 
   CHROMA_PORT: Number(requireEnv("CHROMA_PORT")),
-
-  
 };

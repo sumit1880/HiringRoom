@@ -1,32 +1,16 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query"
+import { interviewService } from "@/services/interviewService"
+import type { InterviewConfig } from "@/types"
 
-import {
-  startInterview,
-  answerInterview,
-} from "../api/interview.api";
-
-export function useStartInterview() {
-  return useMutation({
-    mutationFn: startInterview,
-  });
+export function useCreateSession() {
+  return useMutation({ mutationFn: (config: InterviewConfig) => interviewService.createSession(config) })
 }
-
-export function useAnswerInterview() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: ({
-      sessionId,
-      answer,
-    }: {
-      sessionId: string;
-      answer: string;
-    }) => answerInterview(sessionId, answer),
-
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["interviews"],
-      });
-    },
-  });
+export function useStartInterview() {
+  return useMutation({ mutationFn: (sessionId: string) => interviewService.startInterview(sessionId) })
+}
+export function useQuestions(sessionId: string) {
+  return useQuery({ queryKey: ["interview", sessionId, "questions"], queryFn: () => interviewService.getQuestions(sessionId), enabled: !!sessionId })
+}
+export function useSubmitAnswer(sessionId: string) {
+  return useMutation({ mutationFn: ({ questionId, answer }: { questionId: string; answer: string }) => interviewService.submitAnswer(sessionId, questionId, answer) })
 }

@@ -7,6 +7,8 @@ import userRoutes from "./routes/user.routes.js";
 import resumeRoutes from "./routes/resume.routes.js";
 import interviewRoutes from "./routes/interview.routes.js";
 import messageRoutes from "./routes/message.routes.js";
+import dashboardRoutes from "./routes/dashboard.routes.js";
+import profileRoutes from './routes/profile.routes.js'
 
 const app = express();
 
@@ -26,6 +28,8 @@ app.use("/api/v1/users", userRoutes);
 app.use("/api/v1/resumes", resumeRoutes);
 app.use("/api/v1/interviews", interviewRoutes);
 app.use("/api/v1/interviews", messageRoutes);
+app.use('/api/v1/profile', profileRoutes)
+app.use("/api/v1/dashboard", dashboardRoutes);
 
 
 app.use(errorMiddleware);

@@ -7,20 +7,31 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+enum AuthProvider {
+  LOCAL
+  GOOGLE
+} 
+
 enum UserRole {
   USER
   ADMIN
 }
-
 enum InterviewType {
   DSA
   BEHAVIORAL
   SYSTEM_DESIGN
+  CASE_STUDY
 }
 
 enum InterviewStatus {
   IN_PROGRESS
   COMPLETED
+}
+
+enum InterviewDifficulty {
+  EASY
+  MEDIUM
+  HARD
 }
 
 enum Role {
@@ -36,10 +47,13 @@ enum EmbeddingStatus {
 }
 
 model User {
-  id        String   @id @default(cuid())
-  name      String
-  email     String   @unique
-  password  String
+  id           String       @id @default(cuid())
+  name         String
+  email        String       @unique
+  password     String?
+  googleId     String?      @unique
+  profileImage String?
+  authProvider AuthProvider @default(GOOGLE)
 
   role      UserRole @default(USER)
   isActive  Boolean  @default(true)
@@ -53,31 +67,22 @@ model User {
 
 model InterviewSession {
   id           String            @id @default(cuid())
-
   title        String
-
   type         InterviewType
-
+  difficulty   InterviewDifficulty @default(MEDIUM)
+  durationMinutes Int            @default(30)
   status       InterviewStatus   @default(IN_PROGRESS)
-
   questions InterviewQuestion[]
-
   overallScore Float?
-
   startedAt    DateTime          @default(now())
-
   endedAt      DateTime?
-
   userId       String
-
   user         User              @relation(fields: [userId], references: [id], onDelete: Cascade)
-
+  resumeId     String?
+  resume       Resume?           @relation(fields: [resumeId], references: [id], onDelete: SetNull)
   messages     Message[]
-
   feedback     Feedback?
-
   createdAt    DateTime          @default(now())
-
   updatedAt    DateTime          @updatedAt
 }
 
@@ -115,6 +120,8 @@ model Resume {
 
   userId           String
   user             User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  sessions         InterviewSession[]
 
   @@index([userId])
 

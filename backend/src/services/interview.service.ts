@@ -1,24 +1,104 @@
 import {
   InterviewStatus,
   InterviewType,
+  InterviewDifficulty,
 } from "@prisma/client";
 
 import { prisma } from "../config/prisma.js";
 import { ApiError } from "../utils/ApiError.js";
 import { aiService } from "./ai.service.js";
 
+type DifficultyInput = "easy" | "medium" | "hard";
+
+const DIFFICULTY_MAP: Record<DifficultyInput, InterviewDifficulty> = {
+  easy: InterviewDifficulty.EASY,
+  medium: InterviewDifficulty.MEDIUM,
+  hard: InterviewDifficulty.HARD,
+};
+
+const DIFFICULTY_PROMPT_GUIDANCE: Record<InterviewDifficulty, string> = {
+  [InterviewDifficulty.EASY]: `
+Difficulty: EASY
+- Ask beginner-friendly fundamentals.
+- Focus on basic DSA concepts (arrays, strings, loops, simple complexity) or straightforward questions about the candidate's projects.
+- Keep the question simple, clear, and approachable for someone early in their learning.
+- Avoid multi-part or trick questions.`,
+  [InterviewDifficulty.MEDIUM]: `
+Difficulty: MEDIUM
+- Ask at a standard campus/placement interview level.
+- Cover common DSA patterns, core CS fundamentals, or reasonably detailed project questions.
+- The question should require solid understanding but not deep specialization.`,
+  [InterviewDifficulty.HARD]: `
+Difficulty: HARD
+- Ask at a senior engineer level.
+- Focus on production-scale system design, trade-offs, optimization, and edge cases.
+- Expect the candidate to justify decisions, discuss scalability, failure modes, and performance implications.
+- The question can be multi-layered or probe deeper reasoning.`,
+};
+
+// Previously the interview TYPE was never mentioned in the prompt at all —
+// every interview (technical, behavioral, system design, case study) got
+// the same generic "ask about a project" instruction. This is what made
+// every interview feel like a generic technical one regardless of the
+// type selected on the setup page.
+const TYPE_PROMPT_GUIDANCE: Record<InterviewType, string> = {
+  [InterviewType.DSA]: `
+Interview Type: TECHNICAL / DSA
+- Ask data structures & algorithms questions, or hands-on coding/problem-solving questions.
+- You may also ask focused technical questions about the candidate's resume projects (implementation details, trade-offs, complexity).
+- Do NOT ask behavioral ("tell me about a time...") or pure system-design architecture questions.`,
+  [InterviewType.BEHAVIORAL]: `
+Interview Type: BEHAVIORAL
+- Ask about past experiences, teamwork, conflict, leadership, failures, and decision-making.
+- Prefer "Tell me about a time..." / "Describe a situation where..." style questions grounded in the candidate's resume.
+- Do NOT ask DSA/coding puzzles or system-design architecture questions.`,
+  [InterviewType.SYSTEM_DESIGN]: `
+Interview Type: SYSTEM DESIGN
+- Ask the candidate to design or reason about a system's architecture, scalability, data model, or trade-offs.
+- Focus on high-level design decisions rather than syntax or specific algorithms.
+- Do NOT ask behavioral or DSA coding questions.`,
+  [InterviewType.CASE_STUDY]: `
+Interview Type: CASE STUDY
+- Present an open-ended business/product/technical scenario and ask the candidate to reason through it step by step.
+- Focus on structured problem-solving, prioritization, and justifying trade-offs — not raw coding or "tell me about a time" stories.
+- Do NOT ask DSA coding puzzles or pure behavioral storytelling questions.`,
+};
+
 class InterviewService {
 
   async createSession(
     userId: string,
     title: string,
-    type: InterviewType
+    type: InterviewType,
+    difficulty: DifficultyInput = "medium",
+    resumeId: string,
+    durationMinutes: number = 30
   ) {
+    // Validate the selected resume before the session is ever created.
+    const resume = await prisma.resume.findUnique({
+      where: { id: resumeId },
+    });
+
+    if (!resume) {
+      throw new ApiError(404, "Selected resume not found");
+    }
+
+    if (resume.userId !== userId) {
+      throw new ApiError(403, "This resume does not belong to you");
+    }
+
+    if (resume.embeddingStatus !== "COMPLETED") {
+      throw new ApiError(400, "Selected resume is not a valid resume");
+    }
+
     return prisma.interviewSession.create({
       data: {
         title,
         type,
+        difficulty: DIFFICULTY_MAP[difficulty],
         userId,
+        resumeId,
+        durationMinutes,
       },
     });
   }
@@ -46,11 +126,14 @@ class InterviewService {
         },
         include: {
           feedback: true,
-          questions: {
-            orderBy: {
-              questionNumber: "asc",
-            },
-          },
+       questions: {
+  include: {
+    evaluation: true,
+  },
+  orderBy: {
+    questionNumber: 'asc',
+  },
+},
         },
       });
 
@@ -103,6 +186,32 @@ class InterviewService {
     });
   }
 
+  /**
+   * Resolves which resume's extracted text should be used for a given
+   * session's AI context.
+   *
+   * - If the session has a resumeId (created after multi-resume support
+   *   was added), that exact resume is used — never the "latest" one.
+   * - If the session predates this feature (resumeId is null), we fall
+   *   back to the previous behavior (most recently uploaded resume) so
+   *   existing interviews keep working unchanged.
+   */
+  private async resolveResumeForSession(session: {
+    userId: string;
+    resumeId: string | null;
+  }) {
+    if (session.resumeId) {
+      return prisma.resume.findUnique({
+        where: { id: session.resumeId },
+      });
+    }
+
+    return prisma.resume.findFirst({
+      where: { userId: session.userId },
+      orderBy: { uploadedAt: "desc" },
+    });
+  }
+
   async startInterview(
     sessionId: string,
     userId: string
@@ -134,18 +243,12 @@ class InterviewService {
         questionNumber:
           existing.questionNumber,
         question: existing.question,
+        durationMinutes: session.durationMinutes,
+        startedAt: session.startedAt,
       };
     }
 
-    const resume =
-      await prisma.resume.findFirst({
-        where: {
-          userId,
-        },
-        orderBy: {
-          uploadedAt: "desc",
-        },
-      });
+    const resume = await this.resolveResumeForSession(session);
 
     if (!resume?.extractedText) {
       throw new ApiError(
@@ -154,17 +257,25 @@ class InterviewService {
       );
     }
 
+    const difficultyGuidance =
+      DIFFICULTY_PROMPT_GUIDANCE[session.difficulty];
+
+    const typeGuidance =
+      TYPE_PROMPT_GUIDANCE[session.type];
+
     const prompt = `
 You are an experienced software engineering interviewer.
 
 Generate ONLY the FIRST interview question.
+${typeGuidance}
+${difficultyGuidance}
 
 Rules:
 - Ask exactly ONE question.
 - No greeting.
 - No explanation.
 - No numbering.
-- Prefer asking about one of the candidate's projects.
+- Stay strictly within the interview type described above.
 
 Resume:
 
@@ -185,6 +296,8 @@ ${resume.extractedText.substring(0, 2500)}
     return {
       questionNumber: 1,
       question,
+      durationMinutes: session.durationMinutes,
+      startedAt: session.startedAt,
     };
   }
 
@@ -267,15 +380,7 @@ console.log("Answer type:", typeof answer);
   console.error(err);
   throw err;
 }
-    const resume =
-      await prisma.resume.findFirst({
-        where: {
-          userId,
-        },
-        orderBy: {
-          uploadedAt: "desc",
-        },
-      });
+    const resume = await this.resolveResumeForSession(session);
   let resumeContext = "";
 
 if (resume?.extractedText) {
@@ -308,10 +413,18 @@ ${q.answer ?? "Not answered"}
     .join("\n-------------------------\n");
 
 
+const difficultyGuidance =
+  DIFFICULTY_PROMPT_GUIDANCE[session.difficulty];
+
+const typeGuidance =
+  TYPE_PROMPT_GUIDANCE[session.type];
+
 const prompt = `
 You are an experienced software engineering interviewer.
 
 You are conducting a mock interview.
+${typeGuidance}
+${difficultyGuidance}
 
 Candidate Resume:
 
@@ -327,7 +440,7 @@ ${answer}
 
 Evaluate the candidate's latest answer.
 
-Then generate the NEXT interview question.
+Then generate the NEXT interview question, staying strictly within the interview type described above.
 
 Return ONLY valid JSON.
 
@@ -379,19 +492,30 @@ if (
 }
 
 
+const normalizeToStringArray = (
+  value: unknown
+): string[] => {
+  if (Array.isArray(value)) {
+    return value.map((v) => String(v).trim()).filter(Boolean);
+  }
+  if (typeof value === "string") {
+    return value
+      .split("\n")
+      .map((v) => v.trim())
+      .filter(Boolean);
+  }
+  return [];
+};
+
 await prisma.questionEvaluation.create({
   data: {
     technicalScore: result.technicalScore,
     communicationScore: result.communicationScore,
     confidenceScore: result.confidenceScore,
 
-    strengths: Array.isArray(result.strengths)
-      ? result.strengths.join("\n")
-      : result.strengths,
+    strengths: normalizeToStringArray(result.strengths),
 
-    weaknesses: Array.isArray(result.weaknesses)
-      ? result.weaknesses.join("\n")
-      : result.weaknesses,
+    weaknesses: normalizeToStringArray(result.weaknesses),
 
     feedback: result.feedback,
     questionId: currentQuestion.id,
@@ -415,8 +539,8 @@ await prisma.questionEvaluation.create({
     technicalScore: result.technicalScore,
     communicationScore: result.communicationScore,
     confidenceScore: result.confidenceScore,
-    strengths: result.strengths,
-    weaknesses: result.weaknesses,
+    strengths: normalizeToStringArray(result.strengths),
+    weaknesses: normalizeToStringArray(result.weaknesses),
     feedback: result.feedback,
   },
   nextQuestion: {

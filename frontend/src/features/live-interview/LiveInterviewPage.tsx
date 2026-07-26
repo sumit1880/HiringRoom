@@ -70,7 +70,7 @@ export function LiveInterviewPage() {
   const [orbState, setOrbState] = useState<OrbState>("speaking")
   const [isEnding, setIsEnding] = useState(false)
   const { label: timeLabel } = useCountdown(startedAt, durationMinutes)
-  const confidence = 78
+  
 
   const appendTranscript = (text: string) => {
     setAnswer((prev) => (prev ? `${prev.trim()} ${text}` : text))
@@ -195,11 +195,6 @@ export function LiveInterviewPage() {
 
       {/* Answer editor + controls */}
       <div className="mt-6 space-y-4">
-        <div className="flex items-center justify-between text-xs text-muted-foreground">
-          <span>Confidence signal</span>
-          <span>{confidence}%</span>
-        </div>
-        <Progress value={confidence} className="h-1.5" />
 
         <div className="relative">
           <textarea

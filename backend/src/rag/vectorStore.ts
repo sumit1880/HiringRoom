@@ -1,34 +1,24 @@
-import { ChromaClient } from "chromadb";
+import { prisma } from "../config/prisma.js";
 
+/**
+ * Postgres-backed replacement for the former ChromaDB vector store.
+ * Embeddings are stored directly on the ResumeChunk table (see
+ * prisma/schema.prisma) instead of in an external Chroma collection.
+ */
 class VectorStore {
-  private client = new ChromaClient({
-    path: "http://localhost:8000",
-  });
-
-async getCollection() {
-  return await this.client.getOrCreateCollection({
-    name: "resume_chunks",
-    embeddingFunction: null as any,
-  });
-}
-
   async addDocument(
     id: string,
     text: string,
     embedding: number[],
     userId: string
   ) {
-    const collection = await this.getCollection();
-
-    await collection.add({
-      ids: [id],
-      documents: [text],
-      embeddings: [embedding],
-      metadatas: [
-        {
-          userId,
-        },
-      ],
+    await prisma.resumeChunk.create({
+      data: {
+        id,
+        content: text,
+        embedding,
+        userId,
+      },
     });
   }
 }

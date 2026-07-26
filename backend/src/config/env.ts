@@ -26,8 +26,4 @@ export const env = {
   OPENROUTER_API_KEY: requireEnv("OPENROUTER_API_KEY"),
 
   GROQ_API_KEY: requireEnv("GROQ_API_KEY"),
-
-  CHROMA_HOST: requireEnv("CHROMA_HOST"),
-
-  CHROMA_PORT: Number(requireEnv("CHROMA_PORT")),
 };

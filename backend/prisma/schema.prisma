@@ -60,6 +60,7 @@ model User {
 
   sessions  InterviewSession[]
   resumes   Resume[]
+  resumeChunks ResumeChunk[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -125,6 +126,24 @@ model Resume {
 
   @@index([userId])
 
+}
+
+// Replaces the former ChromaDB "resume_chunks" collection.
+// Embeddings are stored directly in Postgres and cosine similarity is
+// computed in application code (see src/rag/retriever.ts).
+model ResumeChunk {
+  id        String   @id @default(cuid())
+
+  content   String   @db.Text
+
+  embedding Float[]
+
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([userId])
 }
 
 model Feedback {

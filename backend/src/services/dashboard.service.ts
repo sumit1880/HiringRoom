@@ -12,11 +12,11 @@ import { prisma } from "../config/prisma.js";
 type SessionWithQuestions = InterviewSession & {
   questions: (InterviewQuestion & { evaluation: QuestionEvaluation | null })[];
 };
-
 const TYPE_MAP: Record<InterviewType, string> = {
   DSA: "technical",
   BEHAVIORAL: "behavioral",
   SYSTEM_DESIGN: "system-design",
+  CASE_STUDY: "case-study",
 };
 
 const DIFFICULTY_MAP: Record<InterviewDifficulty, string> = {

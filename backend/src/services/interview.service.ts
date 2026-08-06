@@ -2,6 +2,7 @@ import {
   InterviewStatus,
   InterviewType,
   InterviewDifficulty,
+  QuestionStrategy,
 } from "@prisma/client";
 
 import { prisma } from "../config/prisma.js";
@@ -212,6 +213,51 @@ class InterviewService {
     });
   }
 
+  /**
+   * Parses a JSON object out of raw AI output, stripping the markdown
+   * code-fence wrapping models sometimes add despite instructions not to.
+   * Shared by both the opening-question generation and the
+   * evaluate+next-question generation, since both now expect JSON back.
+   */
+  private parseJsonResponse(text: string) {
+    const cleaned = text
+      .replace(/```json/g, "")
+      .replace(/```/g, "")
+      .replace(/^json/i, "")
+      .trim();
+
+    return JSON.parse(cleaned);
+  }
+
+  private normalizeToStringArray(value: unknown): string[] {
+    if (Array.isArray(value)) {
+      return value.map((v) => String(v).trim()).filter(Boolean);
+    }
+    if (typeof value === "string") {
+      return value
+        .split("\n")
+        .map((v) => v.trim())
+        .filter(Boolean);
+    }
+    return [];
+  }
+
+  /**
+   * Validates the AI's chosen next-question strategy, falling back to
+   * NEW_TOPIC (the safest default — it never pretends a struggling
+   * candidate did fine) if the model returns something unexpected.
+   */
+  private normalizeStrategy(value: unknown): QuestionStrategy {
+    if (
+      value === QuestionStrategy.FOLLOW_UP ||
+      value === QuestionStrategy.NEW_TOPIC ||
+      value === QuestionStrategy.SIMPLIFY
+    ) {
+      return value;
+    }
+    return QuestionStrategy.NEW_TOPIC;
+  }
+
   async startInterview(
     sessionId: string,
     userId: string
@@ -277,19 +323,56 @@ Rules:
 - No numbering.
 - Stay strictly within the interview type described above.
 
+Return ONLY valid JSON in this exact shape:
+
+{
+  "topic": "...",
+  "question": "..."
+}
+
+- "topic" is a short 2-5 word label for the concept/skill this question targets (e.g. "Array complexity", "Conflict with teammate", "Caching strategy").
+- "question" must contain exactly ONE interview question, with no numbering or greeting.
+- Do NOT wrap the JSON in markdown.
+
 Resume:
 
 ${resume.extractedText.substring(0, 2500)}
 `.trim();
-  const question =
-  (await aiService.generate(prompt)).trim() ||
-  "Tell me about yourself.";
+
+    const raw = (await aiService.generate(prompt)).trim();
+
+    // Defaults preserve the old behavior (raw text as the question) in
+    // case the model doesn't return valid JSON despite instructions.
+    let question = raw || "Tell me about yourself.";
+    let topic = "Introduction";
+
+    try {
+      const parsed = this.parseJsonResponse(raw);
+      if (parsed?.question) {
+        question = String(parsed.question).trim() || question;
+      }
+      if (parsed?.topic) {
+        topic = String(parsed.topic).trim() || topic;
+      }
+    } catch {
+      // AI didn't return valid JSON — fall back to treating the raw
+      // output as the question, same as the previous behavior.
+    }
 
     await prisma.interviewQuestion.create({
       data: {
         sessionId,
         questionNumber: 1,
         question,
+        topic,
+        strategy: QuestionStrategy.OPENING,
+      },
+    });
+
+    await prisma.interviewSession.update({
+      where: { id: session.id },
+      data: {
+        coveredTopics: [topic],
       },
     });
 
@@ -302,21 +385,8 @@ ${resume.extractedText.substring(0, 2500)}
   }
 
   // ====================================================
-  // NEW : ANSWER QUESTION
+  // ANSWER QUESTION
   // ====================================================
-
-
-private parseEvaluationResponse(text: string) {
-  
-    const cleaned = text
-      .replace(/```json/g, "")
-      .replace(/```/g, "")
-      .replace(/^json/i, "")
-      .trim();
-
-    return JSON.parse(cleaned);
-  
-}
 
   async answerQuestion(
     sessionId: string,
@@ -356,70 +426,71 @@ private parseEvaluationResponse(text: string) {
       );
     }
 
-console.log("Answer received:", answer);
-console.log("Type:", typeof answer);
-console.log("Current Question ID:", currentQuestion.id);
-console.log("Answer:", answer);
-console.log("Answer type:", typeof answer);
+    await prisma.interviewQuestion.update({
+      where: {
+        id: currentQuestion.id,
+      },
+      data: {
+        answer,
+      },
+    });
 
-   try {
-  console.log("Updating answer...");
-
-  const updated = await prisma.interviewQuestion.update({
-    where: {
-      id: currentQuestion.id,
-    },
-    data: {
-      answer,
-    },
-  });
-
-  console.log("Updated:", updated.id);
-} catch (err) {
-  console.error("UPDATE ERROR:");
-  console.error(err);
-  throw err;
-}
     const resume = await this.resolveResumeForSession(session);
-  let resumeContext = "";
+    let resumeContext = "";
 
-if (resume?.extractedText) {
-  resumeContext = resume.extractedText.substring(0, 2500);
-}
+    if (resume?.extractedText) {
+      resumeContext = resume.extractedText.substring(0, 2500);
+    }
 
-const previousQuestions =
-  await prisma.interviewQuestion.findMany({
-    where: {
-      sessionId,
-    },
-    orderBy: {
-      questionNumber: "desc",
-    },
-    take: 3,
-  });
+    const previousQuestions =
+      await prisma.interviewQuestion.findMany({
+        where: {
+          sessionId,
+        },
+        orderBy: {
+          questionNumber: "desc",
+        },
+        take: 3,
+      });
 
-const conversationHistory =
-  previousQuestions
-    .reverse()
-    .map(
-      (q) => `
+    const conversationHistory =
+      previousQuestions
+        .reverse()
+        .map(
+          (q) => `
 Question ${q.questionNumber}
 ${q.question}
 
 Candidate Answer
 ${q.answer ?? "Not answered"}
 `
-    )
-    .join("\n-------------------------\n");
+        )
+        .join("\n-------------------------\n");
 
+    const difficultyGuidance =
+      DIFFICULTY_PROMPT_GUIDANCE[session.difficulty];
 
-const difficultyGuidance =
-  DIFFICULTY_PROMPT_GUIDANCE[session.difficulty];
+    const typeGuidance =
+      TYPE_PROMPT_GUIDANCE[session.type];
 
-const typeGuidance =
-  TYPE_PROMPT_GUIDANCE[session.type];
+    const coveredTopicsList =
+      session.coveredTopics.length > 0
+        ? session.coveredTopics.map((t) => `- ${t}`).join("\n")
+        : "None yet";
 
-const prompt = `
+    const currentTopic = currentQuestion.topic ?? "General";
+
+    // Tells the model explicitly what to do about repeated struggling,
+    // instead of leaving it to guess and generating a next question
+    // "as if nothing happened".
+    const struggleGuidance =
+      session.consecutiveStruggles >= 2
+        ? `The candidate has struggled or given weak/unclear answers ${session.consecutiveStruggles} times in a row. Do NOT keep drilling into the same concept. Either simplify significantly or move to a completely different topic — do not pretend they answered well.`
+        : session.consecutiveStruggles === 1
+        ? `The candidate's previous answer was weak or unclear. Consider simplifying the follow-up, or moving on, rather than escalating difficulty.`
+        : `The candidate has been answering reasonably so far.`;
+
+    const prompt = `
 You are an experienced software engineering interviewer.
 
 You are conducting a mock interview.
@@ -430,7 +501,13 @@ Candidate Resume:
 
 ${resumeContext}
 
-Conversation:
+Topics already covered in this interview so far — do NOT ask about these again, even rephrased:
+${coveredTopicsList}
+
+Current topic: ${currentTopic}
+${struggleGuidance}
+
+Recent Conversation:
 
 ${conversationHistory}
 
@@ -438,16 +515,22 @@ Latest Candidate Answer:
 
 ${answer}
 
-Evaluate the candidate's latest answer.
+Step 1 — Evaluate the candidate's latest answer, including whether it was actually a real answer at all (as opposed to "I don't know", a non-answer, or something clearly off-topic).
 
-Then generate the NEXT interview question, staying strictly within the interview type described above.
+Step 2 — Decide the interviewing strategy for the NEXT question:
+- "FOLLOW_UP": dig deeper into the current topic, based specifically on what the candidate just said. Only choose this if their answer was solid and there's a genuine deeper angle to probe.
+- "SIMPLIFY": ask an easier question on the same or a closely related topic, because the candidate is struggling.
+- "NEW_TOPIC": move to a different topic entirely, because the current one is sufficiently covered or the candidate is stuck on it.
 
-Return ONLY valid JSON.
+Step 3 — Generate the NEXT interview question consistent with that strategy, staying strictly within the interview type described above, and never repeating or closely resembling a topic already covered.
+
+Return ONLY valid JSON in this exact shape:
 
 {
   "technicalScore": number,
   "communicationScore": number,
   "confidenceScore": number,
+  "isWeakAnswer": boolean,
   "strengths": [
     "..."
   ],
@@ -455,73 +538,72 @@ Return ONLY valid JSON.
     "..."
   ],
   "feedback": "...",
+  "strategy": "FOLLOW_UP" | "SIMPLIFY" | "NEW_TOPIC",
+  "topic": "...",
   "nextQuestion": "..."
 }
 
 Rules:
 
 - Scores must be integers from 1 to 10.
+- "isWeakAnswer" is true if the latest answer was a non-answer, "I don't know", off-topic, or showed no real understanding — false otherwise.
 - strengths must contain 2-3 items.
 - weaknesses must contain 2-3 items.
 - feedback should be under 50 words.
+- "topic" is a short 2-5 word label for whatever concept nextQuestion targets. If strategy is FOLLOW_UP, reuse the current topic's label.
 - nextQuestion must be exactly ONE interview question.
 - Do NOT wrap JSON inside markdown.
 `.trim();
-const response =
-  await aiService.generate(prompt);
 
-const result =
-  this.parseEvaluationResponse(
-    response
-  );
+    const response =
+      await aiService.generate(prompt);
 
-console.log(result);
+    const result =
+      this.parseJsonResponse(response);
 
+    if (
+      result.technicalScore === undefined ||
+      result.communicationScore === undefined ||
+      result.confidenceScore === undefined ||
+      !result.nextQuestion
+    ) {
+      throw new ApiError(
+        500,
+        "Invalid AI evaluation response."
+      );
+    }
 
+    const isWeakAnswer = Boolean(result.isWeakAnswer);
+    const strategy = this.normalizeStrategy(result.strategy);
 
-if (
-  result.technicalScore === undefined ||
-  result.communicationScore === undefined ||
-  result.confidenceScore === undefined ||
-  !result.nextQuestion
-) {
-  throw new ApiError(
-    500,
-    "Invalid AI evaluation response."
-  );
-}
+    const nextTopic =
+      typeof result.topic === "string" && result.topic.trim()
+        ? result.topic.trim()
+        : currentTopic;
 
+    const alreadyCovered = session.coveredTopics.some(
+      (t) => t.toLowerCase() === nextTopic.toLowerCase()
+    );
+    const updatedCoveredTopics = alreadyCovered
+      ? session.coveredTopics
+      : [...session.coveredTopics, nextTopic];
 
-const normalizeToStringArray = (
-  value: unknown
-): string[] => {
-  if (Array.isArray(value)) {
-    return value.map((v) => String(v).trim()).filter(Boolean);
-  }
-  if (typeof value === "string") {
-    return value
-      .split("\n")
-      .map((v) => v.trim())
-      .filter(Boolean);
-  }
-  return [];
-};
+    const updatedConsecutiveStruggles = isWeakAnswer
+      ? session.consecutiveStruggles + 1
+      : 0;
 
-await prisma.questionEvaluation.create({
-  data: {
-    technicalScore: result.technicalScore,
-    communicationScore: result.communicationScore,
-    confidenceScore: result.confidenceScore,
-
-    strengths: normalizeToStringArray(result.strengths),
-
-    weaknesses: normalizeToStringArray(result.weaknesses),
-
-    feedback: result.feedback,
-    questionId: currentQuestion.id,
-  },
-});
-
+    await prisma.questionEvaluation.create({
+      data: {
+        technicalScore: result.technicalScore,
+        communicationScore: result.communicationScore,
+        confidenceScore: result.confidenceScore,
+        isWeakAnswer,
+        strengths: this.normalizeToStringArray(result.strengths),
+        weaknesses: this.normalizeToStringArray(result.weaknesses),
+        feedback: result.feedback,
+        questionId: currentQuestion.id,
+      },
+    });
 
     const saved =
       await prisma.interviewQuestion.create({
@@ -530,25 +612,34 @@ await prisma.questionEvaluation.create({
           questionNumber:
             currentQuestion.questionNumber + 1,
           question: result.nextQuestion,
+          topic: nextTopic,
+          strategy,
         },
       });
 
+    await prisma.interviewSession.update({
+      where: { id: session.id },
+      data: {
+        coveredTopics: updatedCoveredTopics,
+        consecutiveStruggles: updatedConsecutiveStruggles,
+      },
+    });
 
-  return {
-  evaluation: {
-    technicalScore: result.technicalScore,
-    communicationScore: result.communicationScore,
-    confidenceScore: result.confidenceScore,
-    strengths: normalizeToStringArray(result.strengths),
-    weaknesses: normalizeToStringArray(result.weaknesses),
-    feedback: result.feedback,
-  },
-  nextQuestion: {
-    questionNumber: saved.questionNumber,
-    question: saved.question,
-  },
-};
-  
+    return {
+      evaluation: {
+        technicalScore: result.technicalScore,
+        communicationScore: result.communicationScore,
+        confidenceScore: result.confidenceScore,
+        strengths: this.normalizeToStringArray(result.strengths),
+        weaknesses: this.normalizeToStringArray(result.weaknesses),
+        feedback: result.feedback,
+      },
+      nextQuestion: {
+        questionNumber: saved.questionNumber,
+        question: saved.question,
+        topic: saved.topic,
+      },
+    };
   }
 }
 

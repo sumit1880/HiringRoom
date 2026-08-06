@@ -34,6 +34,16 @@ enum InterviewDifficulty {
   HARD
 }
 
+// Records *why* a given question was asked, so the interview engine's
+// decision (follow up vs. simplify vs. move to a new topic) is explicit
+// and auditable instead of being re-guessed from scratch every turn.
+enum QuestionStrategy {
+  OPENING
+  FOLLOW_UP
+  NEW_TOPIC
+  SIMPLIFY
+}
+
 enum Role {
   USER
   AI
@@ -83,6 +93,13 @@ model InterviewSession {
   resume       Resume?           @relation(fields: [resumeId], references: [id], onDelete: SetNull)
   messages     Message[]
   feedback     Feedback?
+
+  // Session-level interview-engine state. Kept intentionally small:
+  // just enough to stop repeats and detect struggle streaks without
+  // re-parsing the full question history on every turn.
+  coveredTopics        String[] @default([])
+  consecutiveStruggles Int      @default(0)
+
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 }
@@ -171,7 +188,13 @@ model InterviewQuestion {
   questionNumber Int
   question       String
   answer         String?
-  
+
+  // Which concept this question targets, and why it was chosen
+  // (opening question / follow-up / new topic / simplified retry).
+  // Nullable so existing rows created before this migration remain valid.
+  topic    String?
+  strategy QuestionStrategy?
+
   evaluation QuestionEvaluation?
   sessionId String
   session   InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
@@ -189,6 +212,11 @@ model QuestionEvaluation {
  strengths String[] @default([])
 weaknesses String[] @default([])
   feedback           String   @db.Text
+
+  // True when the candidate's answer was a non-answer, "I don't know",
+  // off-topic, or otherwise showed no real engagement with the question —
+  // set by the AI evaluation itself rather than inferred with string matching.
+  isWeakAnswer       Boolean  @default(false)
 
   questionId         String   @unique
   question           InterviewQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)

@@ -258,6 +258,76 @@ class InterviewService {
     return QuestionStrategy.NEW_TOPIC;
   }
 
+  /**
+   * Generic "positives" that are not real strengths — they describe
+   * effort/tone/intent rather than any demonstrated technical content.
+   * The prompt already forbids these, but this is a server-side safety
+   * net in case the model includes one anyway.
+   */
+  private static readonly BANNED_GENERIC_STRENGTHS = [
+    "engaged",
+    "attempted the question",
+    "attempted to answer",
+    "acknowledged the question",
+    "acknowledged the topic",
+    "shows awareness",
+    "seems familiar",
+    "familiarity with",
+    "aware of the domain",
+    "willingness to",
+    "shows interest",
+    "shows confidence",
+    "positive attitude",
+    "good attitude",
+  ];
+
+  /**
+   * Strips generic non-strengths, and forces an empty strengths list for
+   * weak/refused/meaningless answers regardless of what the model returned —
+   * this is the direct fix for the "hallucinated positive feedback" bug.
+   */
+  private sanitizeStrengths(
+    strengths: string[],
+    isWeakAnswer: boolean
+  ): string[] {
+    if (isWeakAnswer) {
+      return [];
+    }
+
+    return strengths.filter((s) => {
+      const lower = s.toLowerCase();
+      return !InterviewService.BANNED_GENERIC_STRENGTHS.some((phrase) =>
+        lower.includes(phrase)
+      );
+    });
+  }
+
+  /**
+   * Hard ceiling on scores for weak/refused/meaningless answers. The
+   * prompt already instructs the model to score these near zero, but
+   * models don't always follow scoring instructions precisely — this
+   * guarantees a refusal can never surface as a 9 or 10 regardless of
+   * what the model returns.
+   */
+  private clampScoresForWeakAnswer(
+    scores: {
+      technicalScore: number;
+      communicationScore: number;
+      confidenceScore: number;
+    },
+    isWeakAnswer: boolean
+  ) {
+    if (!isWeakAnswer) {
+      return scores;
+    }
+
+    return {
+      technicalScore: Math.min(scores.technicalScore, 2),
+      communicationScore: Math.min(scores.communicationScore, 3),
+      confidenceScore: Math.min(scores.confidenceScore, 2),
+    };
+  }
+
   async startInterview(
     sessionId: string,
     userId: string
@@ -515,7 +585,17 @@ Latest Candidate Answer:
 
 ${answer}
 
-Step 1 — Evaluate the candidate's latest answer, including whether it was actually a real answer at all (as opposed to "I don't know", a non-answer, or something clearly off-topic).
+Step 1 — Evaluate the candidate's latest answer STRICTLY and ONLY based on what they actually wrote. Act like a strict, no-nonsense senior interviewer, not a cheerleader.
+
+Hard evaluation rules — follow these exactly:
+- Judge ONLY the technical/factual content actually present in the answer. Never infer, assume, or credit understanding that was not explicitly demonstrated.
+- NEVER reward effort, confidence, tone, politeness, engagement, or intent to answer. A candidate saying "I know this but won't explain it" has demonstrated ZERO knowledge — score it exactly as you would silence or "I don't know".
+- If the answer is a refusal, a non-answer ("I don't know", "no idea", "pass"), gibberish, or completely off-topic: technicalScore and confidenceScore must be 0-1, communicationScore must be 0-2, "strengths" MUST be an empty array, and feedback must state plainly that no technical content was demonstrated.
+- If the answer is partially correct: state EXACTLY what was correct and EXACTLY what was missing or wrong. Do not round up to "good".
+- If the answer is wrong: explain clearly why it is wrong. Do not soften the criticism.
+- A strength is only valid if it names a SPECIFIC correct concept, term, or explanation the candidate actually stated. NEVER list a strength like "engaged", "attempted the question", "acknowledged the question", "shows awareness", or "seems familiar with the domain" — these are not strengths. If no specific strength exists, "strengths" MUST be an empty array. An empty array is the correct, expected output for a weak answer — do not pad it to reach a minimum count.
+- feedback must reference specifics from the actual answer (e.g. "You correctly identified inheritance, but did not explain parent-child relationships or give an example" — never generic filler like "needs more detail").
+- Scoring anchors for technicalScore: 0-1 = no answer/refusal/gibberish/irrelevant; 2-3 = attempts the topic but substantially incorrect; 4-5 = partially correct with notable gaps; 6-7 = mostly correct with minor gaps; 8-9 = correct, clear, and reasonably complete; 10 = excellent, fully correct, and demonstrates deep understanding — reserve for genuinely outstanding answers only.
 
 Step 2 — Decide the interviewing strategy for the NEXT question:
 - "FOLLOW_UP": dig deeper into the current topic, based specifically on what the candidate just said. Only choose this if their answer was solid and there's a genuine deeper angle to probe.
@@ -545,11 +625,11 @@ Return ONLY valid JSON in this exact shape:
 
 Rules:
 
-- Scores must be integers from 1 to 10.
-- "isWeakAnswer" is true if the latest answer was a non-answer, "I don't know", off-topic, or showed no real understanding — false otherwise.
-- strengths must contain 2-3 items.
-- weaknesses must contain 2-3 items.
-- feedback should be under 50 words.
+- Scores must be integers from 0 to 10. Do not avoid 0 — a genuinely empty or refused answer deserves 0-1, not a sympathy score.
+- "isWeakAnswer" is true if the latest answer was a non-answer, "I don't know", off-topic, gibberish, or showed no real understanding — false otherwise.
+- strengths must contain ONLY specific, evidence-based items actually demonstrated in the answer — 0 to 3 items. An empty array is valid and expected for weak, refused, or meaningless answers. Do NOT invent generic positives to reach a minimum count.
+- weaknesses must contain 1-3 items describing specifically what was missing, incorrect, or absent.
+- feedback should be under 50 words, and must be specific to what the candidate actually wrote.
 - "topic" is a short 2-5 word label for whatever concept nextQuestion targets. If strategy is FOLLOW_UP, reuse the current topic's label.
 - nextQuestion must be exactly ONE interview question.
 - Do NOT wrap JSON inside markdown.
@@ -576,6 +656,23 @@ Rules:
     const isWeakAnswer = Boolean(result.isWeakAnswer);
     const strategy = this.normalizeStrategy(result.strategy);
 
+    // Server-side safety net on top of the strict prompt: guarantees a
+    // refusal/non-answer can never surface a high score or an invented
+    // strength, even if the model doesn't follow the prompt precisely.
+    const clampedScores = this.clampScoresForWeakAnswer(
+      {
+        technicalScore: Number(result.technicalScore),
+        communicationScore: Number(result.communicationScore),
+        confidenceScore: Number(result.confidenceScore),
+      },
+      isWeakAnswer
+    );
+
+    const sanitizedStrengths = this.sanitizeStrengths(
+      this.normalizeToStringArray(result.strengths),
+      isWeakAnswer
+    );
+
     const nextTopic =
       typeof result.topic === "string" && result.topic.trim()
         ? result.topic.trim()
@@ -594,11 +691,11 @@ Rules:
 
     await prisma.questionEvaluation.create({
       data: {
-        technicalScore: result.technicalScore,
-        communicationScore: result.communicationScore,
-        confidenceScore: result.confidenceScore,
+        technicalScore: clampedScores.technicalScore,
+        communicationScore: clampedScores.communicationScore,
+        confidenceScore: clampedScores.confidenceScore,
         isWeakAnswer,
-        strengths: this.normalizeToStringArray(result.strengths),
+        strengths: sanitizedStrengths,
         weaknesses: this.normalizeToStringArray(result.weaknesses),
         feedback: result.feedback,
         questionId: currentQuestion.id,
@@ -627,10 +724,10 @@ Rules:
 
     return {
       evaluation: {
-        technicalScore: result.technicalScore,
-        communicationScore: result.communicationScore,
-        confidenceScore: result.confidenceScore,
-        strengths: this.normalizeToStringArray(result.strengths),
+        technicalScore: clampedScores.technicalScore,
+        communicationScore: clampedScores.communicationScore,
+        confidenceScore: clampedScores.confidenceScore,
+        strengths: sanitizedStrengths,
         weaknesses: this.normalizeToStringArray(result.weaknesses),
         feedback: result.feedback,
       },

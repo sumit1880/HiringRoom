@@ -30,6 +30,20 @@ services:
     volumes:
       - chroma-data:/chroma/chroma
 
+  redis:
+    image: redis:7
+
+    container_name: ai-redis
+
+    restart: unless-stopped
+
+    ports:
+      - "6379:6379"
+
+    volumes:
+      - redis-data:/data
+
 volumes:
   postgres-data:
   chroma-data:
+  redis-data:

@@ -29,7 +29,7 @@ export function PublicNavbar() {
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
             <Sparkles className="h-4 w-4 text-background" />
           </div>
-          <span className="font-display text-lg font-semibold">Aptitude</span>
+          <span className="font-display text-lg font-semibold">TheHiringRoom</span>
         </Link>
 
         <nav className="hidden items-center gap-8 md:flex">

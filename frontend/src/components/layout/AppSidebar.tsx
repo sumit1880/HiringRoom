@@ -26,7 +26,7 @@ export function AppSidebar() {
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
           <Sparkles className="h-4 w-4 text-background" />
         </div>
-        <span className="font-display text-lg font-semibold">Aptitude</span>
+        <span className="font-display text-lg font-semibold">TheHiringRoom</span>
       </div>
 
       <nav className="flex-1 space-y-1 px-3 py-4">

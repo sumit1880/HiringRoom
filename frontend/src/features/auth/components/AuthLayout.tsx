@@ -9,7 +9,7 @@ export function AuthLayout({
   subtitle,
   children,
   quote = "An AI interviewer that adapts its follow-up questions to your resume and your answers.",
-  quoteAuthor = "How Aptitude interviews work",
+  quoteAuthor = "How TheHiringRoom interviews work",
 }: {
   title: string
   subtitle: string

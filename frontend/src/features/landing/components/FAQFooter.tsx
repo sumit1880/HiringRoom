@@ -67,7 +67,7 @@ export function Footer() {
               <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary">
                 <Sparkles className="h-4 w-4 text-background" />
               </div>
-              <span className="font-display text-lg font-semibold">Aptitude</span>
+              <span className="font-display text-lg font-semibold">TheHiringRoom</span>
             </div>
             <p className="mt-4 text-sm text-muted-foreground">The AI interview coach that talks back — so the real one doesn't catch you off guard.</p>
             <div className="mt-5 flex gap-3">

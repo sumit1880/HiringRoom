@@ -20,11 +20,11 @@ bash
 # backend
 cd backend && npm install && npm run dev
 
-# frontend — works out of the box with mock data, no backend required
+# frontend
 cd frontend && npm install && npm run dev
 
 Full setup details in frontend/README.md.
 
 Where it's at
 
-Core interview engine and the strict evaluation pipeline are live. Interview endpoints are now Redis-backed rate limited
+Core interview engine and the strict evaluation pipeline are live. Interview endpoints are now Redis-backed rate limited.

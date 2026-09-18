@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react"
-import { useParams } from "react-router-dom"
+import { useParams, useNavigate } from "react-router-dom"
 import { motion } from "framer-motion"
 import { toast } from "sonner"
 import {
@@ -13,11 +13,17 @@ import {
   CheckCircle2,
   Circle,
   Download,
+  Copy,
+  RotateCcw,
+  Sparkles,
+  Code2,
+  MessageSquare,
 } from "lucide-react"
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { AILoadingState } from "@/components/shared/AILoadingState"
 import { AnimatedCounter, ScrollReveal } from "@/components/shared/motion"
 import { useFeedback } from "@/hooks/useFeedback"
@@ -25,11 +31,11 @@ import { interviewService } from "@/services/interviewService"
 import { cn } from "@/lib/utils"
 
 function getScoreTier(score: number) {
-  if (score >= 90) return { label: "Outstanding performance", className: "text-emerald-400" }
-  if (score >= 80) return { label: "Strong session", className: "text-emerald-400" }
-  if (score >= 65) return { label: "Solid effort", className: "text-primary" }
-  if (score >= 50) return { label: "Good start — keep going", className: "text-amber-400" }
-  return { label: "Room to grow — that's the point of practice", className: "text-amber-400" }
+  if (score >= 90) return { label: "Outstanding performance", className: "text-emerald-400", readiness: "Strong Hire Recommendation" }
+  if (score >= 80) return { label: "Strong session", className: "text-emerald-400", readiness: "Competitive for Onsite" }
+  if (score >= 65) return { label: "Solid effort", className: "text-primary", readiness: "Promising with Minor Polish" }
+  if (score >= 50) return { label: "Good start — keep going", className: "text-amber-400", readiness: "Foundational Practice Stage" }
+  return { label: "Room to grow — that's the point of practice", className: "text-amber-400", readiness: "Early Stage Calibration" }
 }
 
 function ScoreRing({ score }: { score: number }) {
@@ -107,9 +113,11 @@ const listItem = {
 
 export function FeedbackPage() {
   const { sessionId = "s1" } = useParams()
+  const navigate = useNavigate()
   const { data, isLoading } = useFeedback(sessionId)
   const [celebrated, setCelebrated] = useState(false)
   const [noted, setNoted] = useState<Set<number>>(new Set())
+  const [isDownloading, setIsDownloading] = useState(false)
 
   useEffect(() => {
     if (data && !celebrated && data.overallScore >= 80) {
@@ -131,6 +139,40 @@ export function FeedbackPage() {
     })
   }
 
+  const handleCopySummary = () => {
+    if (!data) return
+    const text = [
+      `🎯 TheHiringRoom Mock Interview Feedback`,
+      `Overall Score: ${data.overallScore}/100`,
+      ...data.categories.map((c) => `• ${c.label}: ${c.score}/100`),
+      "",
+      `✅ Key Strengths:`,
+      ...data.strengths.map((s) => `+ ${s}`),
+      "",
+      `⚡ Growth Areas:`,
+      ...data.weaknesses.map((w) => `- ${w}`),
+      "",
+      `🚀 Action Items:`,
+      ...data.recommendations.map((r) => `* ${r}`),
+    ].join("\n")
+
+    navigator.clipboard.writeText(text).then(() => {
+      toast.success("Feedback summary copied to clipboard!")
+    })
+  }
+
+  const handleDownloadPdf = () => {
+    setIsDownloading(true)
+    toast.promise(
+      interviewService.downloadReport(sessionId).finally(() => setIsDownloading(false)),
+      {
+        loading: "Generating official PDF report…",
+        success: "PDF report downloaded!",
+        error: "Couldn't generate report. Please try again.",
+      }
+    )
+  }
+
   if (isLoading || !data) {
     return (
       <AILoadingState
@@ -146,9 +188,11 @@ export function FeedbackPage() {
   }
 
   const tier = getScoreTier(data.overallScore)
+  const techScore = data.categories.find((c) => c.label.toLowerCase().includes("tech"))?.score ?? data.overallScore
+  const commScore = data.categories.find((c) => c.label.toLowerCase().includes("comm"))?.score ?? data.overallScore
 
   return (
-    <div className="relative mx-auto max-w-4xl space-y-8">
+    <div className="relative mx-auto max-w-4xl space-y-8 pb-16">
       {celebrated && (
         <motion.div
           className="pointer-events-none fixed inset-0 z-50 flex items-start justify-center"
@@ -169,43 +213,75 @@ export function FeedbackPage() {
         </motion.div>
       )}
 
-      <ScrollReveal className="flex flex-col items-center gap-3 text-center">
-        {data.overallScore >= 80 && (
-          <div className="flex items-center gap-1.5 text-sm text-emerald-400">
-            <PartyPopper className="h-4 w-4" /> Strong session
-          </div>
-        )}
-        <ScoreRing score={data.overallScore} />
-        <div>
-          <h1 className="text-2xl font-semibold">Here's how it went</h1>
-          <p className={cn("mt-1 text-sm font-medium", tier.className)}>{tier.label}</p>
-        </div>
-
-        {trendDelta !== null && (
-          <Badge variant="secondary" className="gap-1.5">
-            {trendDelta > 0 ? (
-              <TrendingUp className="h-3.5 w-3.5 text-emerald-400" />
-            ) : trendDelta < 0 ? (
-              <TrendingDown className="h-3.5 w-3.5 text-amber-400" />
-            ) : (
-              <Minus className="h-3.5 w-3.5" />
+      {/* Hero Feedback Card */}
+      <ScrollReveal>
+        <Card className="relative overflow-hidden border-white/10 bg-white/[0.02]">
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,hsl(217_91%_60%/0.12),transparent_70%)]" />
+          <CardContent className="relative flex flex-col items-center gap-6 p-8 text-center sm:p-10">
+            {data.overallScore >= 80 && (
+              <div className="flex items-center gap-1.5 rounded-full border border-emerald-500/30 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-400">
+                <PartyPopper className="h-3.5 w-3.5" /> High-Performance Session
+              </div>
             )}
-            {trendDelta > 0 ? `+${trendDelta}` : trendDelta} vs your last session
-          </Badge>
-        )}
 
-        <button
-          onClick={() => {
-            toast.promise(interviewService.downloadReport(sessionId), {
-              loading: "Preparing your report…",
-              success: "Report downloaded",
-              error: "Couldn't generate the report. Try again.",
-            })
-          }}
-          className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-white/20 hover:text-foreground"
-        >
-          <Download className="h-3.5 w-3.5" /> Download PDF report
-        </button>
+            <div className="flex flex-col sm:flex-row items-center justify-center gap-8 w-full max-w-xl">
+              <ScoreRing score={data.overallScore} />
+
+              <div className="flex flex-col items-center sm:items-start text-center sm:text-left space-y-3">
+                <div>
+                  <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Session Evaluation</h1>
+                  <p className={cn("text-base font-medium", tier.className)}>{tier.label}</p>
+                </div>
+
+                <Badge variant="outline" className="border-white/15 bg-white/[0.04] text-xs font-mono">
+                  {tier.readiness}
+                </Badge>
+
+                {trendDelta !== null && (
+                  <Badge variant="secondary" className="gap-1.5 text-xs">
+                    {trendDelta > 0 ? (
+                      <TrendingUp className="h-3.5 w-3.5 text-emerald-400" />
+                    ) : trendDelta < 0 ? (
+                      <TrendingDown className="h-3.5 w-3.5 text-amber-400" />
+                    ) : (
+                      <Minus className="h-3.5 w-3.5" />
+                    )}
+                    {trendDelta > 0 ? `+${trendDelta}` : trendDelta} vs previous session
+                  </Badge>
+                )}
+              </div>
+            </div>
+
+            {/* Quick Dimension Pill Metrics */}
+            <div className="grid grid-cols-2 gap-4 w-full max-w-md pt-2">
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-center">
+                <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground mb-1">
+                  <Code2 className="h-3.5 w-3.5 text-primary" /> Technical Depth
+                </div>
+                <p className="text-xl font-bold font-mono">{techScore}<span className="text-xs text-muted-foreground">/100</span></p>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-3 text-center">
+                <div className="flex items-center justify-center gap-1.5 text-xs text-muted-foreground mb-1">
+                  <MessageSquare className="h-3.5 w-3.5 text-sky-400" /> Communication
+                </div>
+                <p className="text-xl font-bold font-mono">{commScore}<span className="text-xs text-muted-foreground">/100</span></p>
+              </div>
+            </div>
+
+            {/* Action Bar */}
+            <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
+              <Button onClick={handleDownloadPdf} loading={isDownloading} className="gap-2">
+                <Download className="h-4 w-4" /> Download PDF Report
+              </Button>
+              <Button variant="outline" onClick={handleCopySummary} className="gap-2">
+                <Copy className="h-4 w-4" /> Copy Summary
+              </Button>
+              <Button variant="ghost" onClick={() => navigate("/interview/setup")} className="gap-2 text-muted-foreground hover:text-foreground">
+                <RotateCcw className="h-4 w-4" /> Practice Again
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
       </ScrollReveal>
 
       <ScrollReveal>

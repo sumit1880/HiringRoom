@@ -94,3 +94,18 @@ export const scoreATS = asyncHandler(async (req: Request, res: Response) => {
     data: result,
   });
 });
+
+export const retry = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) {
+    throw new ApiError(401, "Authentication required");
+  }
+
+  const { retryResumeProcessing } = await import("../services/resume.service.js");
+  const resume = await retryResumeProcessing(req.params.id, req.user.id);
+
+  res.status(200).json({
+    success: true,
+    message: "Resume re-queued for processing",
+    data: resume,
+  });
+});

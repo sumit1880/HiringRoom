@@ -60,3 +60,16 @@ export function useScoreResumeATS() {
     onError: () => toast.error("Couldn't score this resume right now. Try again."),
   })
 }
+
+export function useRetryResume() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: string) => resumeService.retry(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["resume"] })
+      qc.invalidateQueries({ queryKey: ["resumes"] })
+      toast.success("Resume processing restarted")
+    },
+    onError: () => toast.error("Couldn't retry resume processing. Try again."),
+  })
+}

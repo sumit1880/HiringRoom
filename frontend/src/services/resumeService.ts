@@ -69,6 +69,12 @@ export const resumeService = {
     if (USE_MOCKS) return delay(undefined, 300)
     await api.delete(`/resumes/${id}`)
   },
+  retry: async (id: string): Promise<Resume> => {
+    if (USE_MOCKS) return delay({ ...mockResume, status: "parsing" }, 300)
+    const res = await api.post<ApiEnvelope<BackendResume>>(`/resumes/${id}/retry`)
+    return toResume(res.data)
+  },
+
   /** ATS-style scoring of a resume, optionally targeted at a job description. */
   scoreATS: async (id: string, jobDescription?: string): Promise<AtsScore> => {
     if (USE_MOCKS) {

@@ -9,6 +9,7 @@ import {
   getOne,
   remove,
   scoreATS,
+  retry,
 } from "../controllers/resume.controller.js";
 
 const router = Router();
@@ -27,6 +28,9 @@ router.get("/:id", getOne);
 
 router.post("/:id/score", scoreATS);
 
+router.post("/:id/retry", retry);
+
 router.delete("/:id", remove);
+
 
 export default router;

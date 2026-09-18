@@ -298,9 +298,6 @@ Rules:
 };
 
 export const deleteResume = async (id: string, userId: string) => {
-  // ResumeChunk.resumeId now has ON DELETE CASCADE (see the pgvector
-  // migration) — deleting the resume row also deletes its chunks at the
-  // database level. Previously chunks were never cleaned up here at all.
   return prisma.resume.deleteMany({
     where: {
       id,
@@ -308,3 +305,27 @@ export const deleteResume = async (id: string, userId: string) => {
     },
   });
 };
+
+export const retryResumeProcessing = async (id: string, userId: string) => {
+  const resume = await getResumeById(id, userId);
+  if (!resume) {
+    throw new ApiError(404, "Resume not found");
+  }
+
+  if (!resume.extractedText) {
+    throw new ApiError(400, "Resume text is not available for retry. Please re-upload.");
+  }
+
+  await prisma.resume.update({
+    where: { id },
+    data: { embeddingStatus: "PENDING" },
+  });
+
+  await resumeProcessingQueue.add("process-resume", {
+    resumeId: resume.id,
+    userId,
+    extractedText: resume.extractedText,
+  });
+
+  return prisma.resume.findUnique({ where: { id } });
+};

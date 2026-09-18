@@ -1,6 +1,6 @@
 import { api } from "./apiClient"
 import { USE_MOCKS, delay, mockResume, mockResumes } from "./mockData"
-import type { Resume } from "@/types"
+import type { AtsScore, Resume } from "@/types"
 
 // Backend wraps every response as { success, message, data }.
 type ApiEnvelope<T> = { success: boolean; message?: string; data: T }
@@ -68,5 +68,21 @@ export const resumeService = {
   delete: async (id: string): Promise<void> => {
     if (USE_MOCKS) return delay(undefined, 300)
     await api.delete(`/resumes/${id}`)
+  },
+  /** ATS-style scoring of a resume, optionally targeted at a job description. */
+  scoreATS: async (id: string, jobDescription?: string): Promise<AtsScore> => {
+    if (USE_MOCKS) {
+      return delay({
+        score: 78,
+        summary: "Strong technical background; could use more quantified impact.",
+        strengths: ["Clear skills section", "Relevant recent experience"],
+        improvements: ["Add measurable outcomes", "Tighten summary to 2-3 lines"],
+        missingKeywords: jobDescription ? ["TypeScript", "CI/CD"] : [],
+      })
+    }
+    const res = await api.post<{ success: boolean; data: AtsScore }>(`/resumes/${id}/score`, {
+      jobDescription: jobDescription || undefined,
+    })
+    return res.data
   },
 }

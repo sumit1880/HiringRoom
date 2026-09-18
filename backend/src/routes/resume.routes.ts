@@ -8,6 +8,7 @@ import {
   getAll,
   getOne,
   remove,
+  scoreATS,
 } from "../controllers/resume.controller.js";
 
 const router = Router();
@@ -23,6 +24,8 @@ router.post(
 router.get("/", getAll);
 
 router.get("/:id", getOne);
+
+router.post("/:id/score", scoreATS);
 
 router.delete("/:id", remove);
 

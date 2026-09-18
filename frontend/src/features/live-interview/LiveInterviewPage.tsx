@@ -9,7 +9,6 @@ import { Badge } from "@/components/ui/badge"
 import { Orb, type OrbState } from "@/components/shared/Orb"
 import { Waveform } from "@/components/shared/Waveform"
 import { AILoadingState } from "@/components/shared/AILoadingState"
-import { useStartInterview, useSubmitAnswer } from "@/hooks/useInterview"
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition"
 import { interviewService } from "@/services/interviewService"
 import { cn } from "@/lib/utils"
@@ -45,23 +44,45 @@ function useCountdown(startedAt: string | undefined, durationMinutes: number) {
 export function LiveInterviewPage() {
   const { sessionId = "s_new" } = useParams()
   const navigate = useNavigate()
-  const startInterview = useStartInterview()
-  const submitAnswer = useSubmitAnswer(sessionId)
 
   const [questions, setQuestions] = useState<InterviewQuestion[]>([])
   const [durationMinutes, setDurationMinutes] = useState(30)
   const [startedAt, setStartedAt] = useState<string | undefined>(undefined)
-  const isLoading = questions.length === 0
+  // Text of the question currently being streamed in, shown live before
+  // it's added to `questions` once the stream completes — this is what
+  // gives the "typing in" effect on both the opening question and every
+  // follow-up question.
+  const [streamingText, setStreamingText] = useState<string | null>(null)
+  const [isStreamingQuestion, setIsStreamingQuestion] = useState(false)
+  const isLoading = questions.length === 0 && !streamingText
 
   useEffect(() => {
     if (!sessionId) return
-    startInterview.mutate(sessionId, {
-      onSuccess: (res) => {
+    let cancelled = false
+    setIsStreamingQuestion(true)
+    setStreamingText("")
+    interviewService
+      .startInterviewStream(sessionId, (partial) => {
+        if (!cancelled) setStreamingText(partial)
+      })
+      .then((res) => {
+        if (cancelled) return
         setQuestions((prev) => (prev.length === 0 ? [res.question] : prev))
         setDurationMinutes(res.durationMinutes)
         setStartedAt(res.startedAt)
-      },
-    })
+      })
+      .catch((err) => {
+        if (!cancelled) toast.error(err?.message ?? "Failed to start the interview.")
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsStreamingQuestion(false)
+          setStreamingText(null)
+        }
+      })
+    return () => {
+      cancelled = true
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId])
 
@@ -98,6 +119,12 @@ export function LiveInterviewPage() {
   }
 
   const question = questions?.[qIndex]
+  const [isSubmitting, setIsSubmitting] = useState(false)
+
+  // While a new question is streaming in (either the opening question, or
+  // the next one after submitting an answer), show its text live instead
+  // of the last fully-loaded question.
+  const displayedPrompt = streamingText !== null ? streamingText : question?.prompt
 
   useEffect(() => {
     setOrbState("speaking")
@@ -109,18 +136,25 @@ export function LiveInterviewPage() {
     if (!question) return
     if (isListening) stopListening()
     setOrbState("thinking")
-    submitAnswer.mutate(
-      { questionId: question.id, answer },
-      {
-        onSuccess: (res) => {
-          setAnswer("")
-          if (res.nextQuestion) {
-            setQuestions((prev) => [...prev, res.nextQuestion as InterviewQuestion])
-          }
-          setTimeout(() => setQIndex((i) => Math.min(i + 1, questions.length)), 900)
-        },
-      }
-    )
+    setIsSubmitting(true)
+    interviewService
+      .submitAnswerStream(sessionId, question.id, answer, (partial) => {
+        setStreamingText(partial)
+      })
+      .then((res) => {
+        setAnswer("")
+        if (res.nextQuestion) {
+          setQuestions((prev) => [...prev, res.nextQuestion as InterviewQuestion])
+        }
+        setTimeout(() => setQIndex((i) => Math.min(i + 1, questions.length)), 300)
+      })
+      .catch((err) => {
+        toast.error(err?.message ?? "Failed to submit your answer.")
+      })
+      .finally(() => {
+        setIsSubmitting(false)
+        setStreamingText(null)
+      })
   }
 
   const handleEnd = () => {
@@ -131,7 +165,7 @@ export function LiveInterviewPage() {
     })
   }
 
-  if (isLoading || !question) {
+  if (isLoading) {
     return (
       <AILoadingState
         title="Preparing your interview"
@@ -145,16 +179,27 @@ export function LiveInterviewPage() {
     )
   }
 
+  // While a question is streaming in and hasn't been added to `questions`
+  // yet (either the very first one, or the next one after an answer),
+  // fall back to a lightweight placeholder so index/total/id are always
+  // defined for the render below.
+  const displayedQuestion = question ?? {
+    id: "streaming",
+    index: questions.length + 1,
+    total: questions.length + 1,
+    prompt: "",
+  }
+
   return (
     <div className="mx-auto flex min-h-[calc(100vh-6rem)] max-w-5xl flex-col">
       {/* Top bar */}
       <div className="flex items-center justify-between">
         <Badge variant="secondary" className="font-mono">{timeLabel} remaining</Badge>
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
-          Question {question.index} of {question.total}
+          Question {displayedQuestion.index} of {displayedQuestion.total}
         </div>
       </div>
-      <Progress value={(question.index / question.total) * 100} className="mt-3" />
+      <Progress value={(displayedQuestion.index / displayedQuestion.total) * 100} className="mt-3" />
 
       {/* Main stage */}
       <div className="relative mt-10 flex flex-1 flex-col items-center justify-center gap-8 rounded-3xl glass p-10">
@@ -168,13 +213,13 @@ export function LiveInterviewPage() {
           </span>
           <AnimatePresence mode="wait">
             <motion.p
-              key={question.id}
+              key={question?.id ?? "streaming"}
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               className="max-w-xl font-display text-xl leading-snug sm:text-2xl"
             >
-              {question.prompt}
+              {displayedPrompt}
             </motion.p>
           </AnimatePresence>
         </div>
@@ -236,7 +281,7 @@ export function LiveInterviewPage() {
             <Button variant="destructive" onClick={handleEnd} loading={isEnding}>
               <PhoneOff className="h-4 w-4" /> End interview
             </Button>
-            <Button onClick={handleSubmit} loading={submitAnswer.isPending} disabled={!answer.trim()}>
+            <Button onClick={handleSubmit} loading={isSubmitting} disabled={!answer.trim()}>
               <Send className="h-4 w-4" /> Submit answer
             </Button>
           </div>

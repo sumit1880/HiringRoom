@@ -3,6 +3,7 @@ import { protect } from "../middlewares/auth.middleware.js";
 
 import {
   sendMessage,
+  sendMessageStream,
   getMessages,
 } from "../controllers/message.controller.js";
 
@@ -14,6 +15,11 @@ router.use(protect);
  * Send message (user or AI)
  */
 router.post("/:id/messages", sendMessage);
+
+/**
+ * Streaming variant — Server-Sent Events, token-by-token AI reply.
+ */
+router.post("/:id/messages/stream", sendMessageStream);
 
 /**
  * Get chat history

@@ -100,6 +100,10 @@ model InterviewSession {
   coveredTopics        String[] @default([])
   consecutiveStruggles Int      @default(0)
 
+  // Optional job description to tailor question generation toward a
+  // specific role instead of only the resume + interview type/difficulty.
+  jobDescription       String?  @db.Text
+
   createdAt    DateTime          @default(now())
   updatedAt    DateTime          @updatedAt
 }
@@ -140,27 +144,43 @@ model Resume {
   user             User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   sessions         InterviewSession[]
+  chunks           ResumeChunk[]
 
   @@index([userId])
 
 }
 
 // Replaces the former ChromaDB "resume_chunks" collection.
-// Embeddings are stored directly in Postgres and cosine similarity is
-// computed in application code (see src/rag/retriever.ts).
+// Embeddings are stored in Postgres using the pgvector extension and
+// similarity search runs as a native SQL ORDER BY ... <=> ... query (see
+// src/rag/retriever.ts) instead of pulling every row into Node and
+// scoring in a JS loop.
+//
+// `embedding` is intentionally declared Unsupported — Prisma Client has
+// no native vector type, so all reads/writes to this column go through
+// $queryRaw/$executeRaw (see src/rag/vectorStore.ts and retriever.ts).
 model ResumeChunk {
   id        String   @id @default(cuid())
 
   content   String   @db.Text
 
-  embedding Float[]
+  embedding Unsupported("vector(768)")?
 
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
+  // Chunks are now scoped to the specific resume they came from — the
+  // previous userId-only scoping meant a user with multiple resumes got
+  // RAG context blended across all of them regardless of which resume an
+  // interview session/chat was actually using. Cascades so deleting a
+  // resume also deletes its chunks (previously they were orphaned).
+  resumeId  String
+  resume    Resume   @relation(fields: [resumeId], references: [id], onDelete: Cascade)
+
   createdAt DateTime @default(now())
 
   @@index([userId])
+  @@index([resumeId])
 }
 
 model Feedback {

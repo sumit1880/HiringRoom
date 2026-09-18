@@ -32,6 +32,7 @@ export function InterviewSetupPage() {
   const [difficulty, setDifficulty] = useState<Difficulty>("medium")
   const [duration, setDuration] = useState(30)
   const [selectedResumeId, setSelectedResumeId] = useState<string | undefined>(undefined)
+  const [jobDescription, setJobDescription] = useState("")
   const { data: resumes, isLoading: resumesLoading } = useResumes()
   const createSession = useCreateSession()
   const navigate = useNavigate()
@@ -49,7 +50,14 @@ export function InterviewSetupPage() {
   const handleStart = () => {
     if (!selectedResumeId) return
     createSession.mutate(
-      { type, role, difficulty, durationMinutes: duration, resumeId: selectedResumeId },
+      {
+        type,
+        role,
+        difficulty,
+        durationMinutes: duration,
+        resumeId: selectedResumeId,
+        jobDescription: jobDescription.trim() || undefined,
+      },
       { onSuccess: (session) => navigate(`/interview/live/${session.id}`) }
     )
   }
@@ -131,6 +139,21 @@ export function InterviewSetupPage() {
             </button>
           ))}
         </div>
+      </section>
+
+      <section>
+        <Label htmlFor="jd" className="mb-4 block text-sm font-medium text-muted-foreground">
+          Job description <span className="font-normal text-muted-foreground/60">(optional)</span>
+        </Label>
+        <textarea
+          id="jd"
+          value={jobDescription}
+          onChange={(e) => setJobDescription(e.target.value)}
+          placeholder="Paste a job description to tailor questions toward it — skills, responsibilities, seniority level…"
+          rows={5}
+          maxLength={8000}
+          className="w-full resize-none rounded-2xl border border-white/10 bg-white/[0.03] p-4 text-sm outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring placeholder:text-muted-foreground"
+        />
       </section>
 
       <section>

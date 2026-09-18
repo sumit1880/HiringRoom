@@ -35,3 +35,11 @@ export function useDeleteResume() {
     onError: () => toast.error("Couldn't remove your resume. Try again."),
   })
 }
+
+export function useScoreResumeATS() {
+  return useMutation({
+    mutationFn: ({ id, jobDescription }: { id: string; jobDescription?: string }) =>
+      resumeService.scoreATS(id, jobDescription),
+    onError: () => toast.error("Couldn't score this resume right now. Try again."),
+  })
+}

@@ -1,4 +1,4 @@
-# Aptitude — AI Interview Coach (Frontend)
+# TheHiringRoom — AI Interview Coach (Frontend)
 
 A frontend-only redesign of the AI Interview Coach: dark, glassmorphic, motion-driven UI built with React, TypeScript, Vite, and Tailwind. This repo contains **no backend code** — it's a pure client that talks to your existing API through a single, clearly-marked service layer.
 

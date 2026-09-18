@@ -11,6 +11,14 @@ export interface AuthTokens {
   refreshToken?: string
 }
 
+export interface AtsScore {
+  score: number
+  summary: string
+  strengths: string[]
+  improvements: string[]
+  missingKeywords: string[]
+}
+
 export interface Resume {
   id: string
   fileName: string
@@ -29,6 +37,8 @@ export interface InterviewConfig {
   difficulty: Difficulty
   durationMinutes: number
   resumeId?: string
+  /** Optional job description to tailor question generation toward a specific role. */
+  jobDescription?: string
 }
 
 export interface InterviewSession {

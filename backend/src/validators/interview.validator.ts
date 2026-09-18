@@ -23,6 +23,14 @@ export const createInterviewSchema = z.object({
     .trim()
     .min(1, "resumeId is required"),
 
+  // Optional job description to tailor question generation toward a
+  // specific role instead of only the resume + interview type/difficulty.
+  jobDescription: z
+    .string()
+    .trim()
+    .max(8000, "Job description must be under 8000 characters")
+    .optional(),
+
   durationMinutes: z
     .union([
       z.literal(15),

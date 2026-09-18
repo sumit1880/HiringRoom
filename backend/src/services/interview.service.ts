@@ -73,7 +73,8 @@ class InterviewService {
     type: InterviewType,
     difficulty: DifficultyInput = "medium",
     resumeId: string,
-    durationMinutes: number = 30
+    durationMinutes: number = 30,
+    jobDescription?: string
   ) {
     // Validate the selected resume before the session is ever created.
     const resume = await prisma.resume.findUnique({
@@ -100,19 +101,41 @@ class InterviewService {
         userId,
         resumeId,
         durationMinutes,
+        // See "Read before writing" note near jobDescription's other
+        // usages: typed via `as any` until `prisma generate` (already
+        // wired into postinstall) regenerates client types for this
+        // newly added column.
+        ...( { jobDescription: jobDescription?.trim() || null } as any),
       },
     });
   }
 
-  async getSessions(userId: string) {
-    return prisma.interviewSession.findMany({
-      where: {
-        userId,
+  // Paginated — a user's session count grows unbounded over months of
+  // use; previously this always returned every session ever created.
+  // Backward compatible: omitting page/limit still returns page 1 of 20.
+  async getSessions(userId: string, page = 1, limit = 20) {
+    const safeLimit = Math.min(Math.max(limit, 1), 100);
+    const safePage = Math.max(page, 1);
+
+    const [sessions, total] = await Promise.all([
+      prisma.interviewSession.findMany({
+        where: { userId },
+        orderBy: { startedAt: "desc" },
+        skip: (safePage - 1) * safeLimit,
+        take: safeLimit,
+      }),
+      prisma.interviewSession.count({ where: { userId } }),
+    ]);
+
+    return {
+      sessions,
+      pagination: {
+        page: safePage,
+        limit: safeLimit,
+        total,
+        totalPages: Math.ceil(total / safeLimit),
       },
-      orderBy: {
-        startedAt: "desc",
-      },
-    });
+    };
   }
 
   async getSessionById(
@@ -197,7 +220,30 @@ class InterviewService {
    *   back to the previous behavior (most recently uploaded resume) so
    *   existing interviews keep working unchanged.
    */
-  private async resolveResumeForSession(session: {
+  /**
+   * Resolves the resumeId a chat message for this session should use for
+   * RAG context — used by message.controller.ts so /messages requests
+   * scope retrieval to the correct resume, not just the user.
+   */
+  async getResumeIdForSession(sessionId: string, userId: string): Promise<string> {
+    const session = await prisma.interviewSession.findFirst({
+      where: { id: sessionId, userId },
+    });
+
+    if (!session) {
+      throw new ApiError(404, "Interview session not found");
+    }
+
+    const resume = await this.resolveResumeForSession(session);
+
+    if (!resume) {
+      throw new ApiError(400, "No resume associated with this interview.");
+    }
+
+    return resume.id;
+  }
+
+  async resolveResumeForSession(session: {
     userId: string;
     resumeId: string | null;
   }) {
@@ -211,6 +257,23 @@ class InterviewService {
       where: { userId: session.userId },
       orderBy: { uploadedAt: "desc" },
     });
+  }
+
+  /**
+   * Optional job-description block injected into both the opening and
+   * follow-up question prompts. Returns an empty string (rendering as a
+   * harmless blank line) when the session has no jobDescription set, so
+   * this is a no-op for the majority of sessions that aren't JD-targeted.
+   */
+  private buildJobDescriptionGuidance(session: { jobDescription?: string | null }): string {
+    const jd = session.jobDescription?.trim();
+    if (!jd) return "";
+
+    return `
+Target Job Description — tailor every question toward the skills, responsibilities, and seniority this JD describes, in addition to the resume:
+
+${jd.substring(0, 3000)}
+`;
   }
 
   /**
@@ -332,6 +395,56 @@ class InterviewService {
     sessionId: string,
     userId: string
   ) {
+    const setup = await this.prepareOpeningQuestion(sessionId, userId);
+    if ("existing" in setup) return setup.existing;
+
+    const raw = (await aiService.generate(setup.prompt)).trim();
+    return this.finalizeOpeningQuestion(sessionId, setup.session, raw);
+  }
+
+  /**
+   * Streaming variant of startInterview — yields raw text chunks as the
+   * opening question's JSON is generated, then a final `done` event with
+   * the same shape startInterview() returns. The prompt/JSON contract is
+   * unchanged from the non-streaming path (see prepareOpeningQuestion) —
+   * only how the response reaches the caller differs, which keeps this
+   * from risking any regression in question generation itself.
+   */
+  async *startInterviewStream(
+    sessionId: string,
+    userId: string
+  ): AsyncGenerator<
+    { type: "chunk"; text: string } | { type: "done"; data: any },
+    void,
+    unknown
+  > {
+    const setup = await this.prepareOpeningQuestion(sessionId, userId);
+    if ("existing" in setup) {
+      yield { type: "done", data: setup.existing };
+      return;
+    }
+
+    let raw = "";
+    for await (const chunk of aiService.generateStream(setup.prompt)) {
+      raw += chunk;
+      yield { type: "chunk", text: chunk };
+    }
+
+    const result = await this.finalizeOpeningQuestion(
+      sessionId,
+      setup.session,
+      raw.trim()
+    );
+    yield { type: "done", data: result };
+  }
+
+  /**
+   * Shared setup for both startInterview() and startInterviewStream():
+   * validates the session, returns the already-generated first question
+   * if one exists (idempotent on refresh, same as before), otherwise
+   * builds the opening-question prompt.
+   */
+  private async prepareOpeningQuestion(sessionId: string, userId: string) {
     const session =
       await prisma.interviewSession.findFirst({
         where: {
@@ -356,11 +469,12 @@ class InterviewService {
 
     if (existing) {
       return {
-        questionNumber:
-          existing.questionNumber,
-        question: existing.question,
-        durationMinutes: session.durationMinutes,
-        startedAt: session.startedAt,
+        existing: {
+          questionNumber: existing.questionNumber,
+          question: existing.question,
+          durationMinutes: session.durationMinutes,
+          startedAt: session.startedAt,
+        },
       };
     }
 
@@ -379,12 +493,15 @@ class InterviewService {
     const typeGuidance =
       TYPE_PROMPT_GUIDANCE[session.type];
 
+    const jobDescriptionGuidance = this.buildJobDescriptionGuidance(session as any);
+
     const prompt = `
 You are an experienced software engineering interviewer.
 
 Generate ONLY the FIRST interview question.
 ${typeGuidance}
 ${difficultyGuidance}
+${jobDescriptionGuidance}
 
 Rules:
 - Ask exactly ONE question.
@@ -409,8 +526,16 @@ Resume:
 ${resume.extractedText.substring(0, 2500)}
 `.trim();
 
-    const raw = (await aiService.generate(prompt)).trim();
+    return { session, prompt };
+  }
 
+  /** Parses the opening-question JSON and persists it — shared by both
+   * the streaming and non-streaming entry points so they can never
+   * diverge in how a response is interpreted or saved. */
+  private async finalizeOpeningQuestion(
+    sessionId: string,
+    session: { id: string; durationMinutes: number; startedAt: Date }
+  , raw: string) {
     // Defaults preserve the old behavior (raw text as the question) in
     // case the model doesn't return valid JSON despite instructions.
     let question = raw || "Tell me about yourself.";
@@ -459,6 +584,55 @@ ${resume.extractedText.substring(0, 2500)}
   // ====================================================
 
   async answerQuestion(
+    sessionId: string,
+    userId: string,
+    answer: string
+  ) {
+    const { session, currentQuestion, currentTopic, prompt } =
+      await this.prepareAnswerQuestion(sessionId, userId, answer);
+
+    const response = await aiService.generate(prompt);
+
+    return this.finalizeAnswer(session, currentQuestion, currentTopic, response);
+  }
+
+  /**
+   * Streaming variant of answerQuestion() - yields the evaluation+
+   * next-question JSON as raw text chunks while the model generates
+   * it, then a final `done` event with the same shape answerQuestion()
+   * returns. The prompt and JSON contract are completely unchanged
+   * from the non-streaming path (see prepareAnswerQuestion) - only how
+   * the response reaches the caller differs, so the strict scoring
+   * rules can never drift between the two entry points.
+   */
+  async *answerQuestionStream(
+    sessionId: string,
+    userId: string,
+    answer: string
+  ): AsyncGenerator<
+    { type: "chunk"; text: string } | { type: "done"; data: any },
+    void,
+    unknown
+  > {
+    const { session, currentQuestion, currentTopic, prompt } =
+      await this.prepareAnswerQuestion(sessionId, userId, answer);
+
+    let response = "";
+    for await (const chunk of aiService.generateStream(prompt)) {
+      response += chunk;
+      yield { type: "chunk", text: chunk };
+    }
+
+    const result = await this.finalizeAnswer(
+      session,
+      currentQuestion,
+      currentTopic,
+      response
+    );
+    yield { type: "done", data: result };
+  }
+
+  private async prepareAnswerQuestion(
     sessionId: string,
     userId: string,
     answer: string
@@ -543,6 +717,8 @@ ${q.answer ?? "Not answered"}
     const typeGuidance =
       TYPE_PROMPT_GUIDANCE[session.type];
 
+    const jobDescriptionGuidance = this.buildJobDescriptionGuidance(session as any);
+
     const coveredTopicsList =
       session.coveredTopics.length > 0
         ? session.coveredTopics.map((t) => `- ${t}`).join("\n")
@@ -566,7 +742,7 @@ You are an experienced software engineering interviewer.
 You are conducting a mock interview.
 ${typeGuidance}
 ${difficultyGuidance}
-
+${jobDescriptionGuidance}
 Candidate Resume:
 
 ${resumeContext}
@@ -635,8 +811,26 @@ Rules:
 - Do NOT wrap JSON inside markdown.
 `.trim();
 
-    const response =
-      await aiService.generate(prompt);
+    return { session, currentQuestion, currentTopic, prompt };
+  }
+
+  /**
+   * Parses the evaluation+next-question JSON and persists everything
+   * (evaluation row, next question row, session topic/struggle update) -
+   * shared by answerQuestion() and answerQuestionStream() so the two
+   * entry points can never diverge in how a response is interpreted,
+   * scored, or saved.
+   */
+  private async finalizeAnswer(
+    session: {
+      id: string;
+      coveredTopics: string[];
+      consecutiveStruggles: number;
+    },
+    currentQuestion: { id: string; questionNumber: number },
+    currentTopic: string,
+    response: string
+  ) {
 
     const result =
       this.parseJsonResponse(response);
@@ -705,7 +899,7 @@ Rules:
     const saved =
       await prisma.interviewQuestion.create({
         data: {
-          sessionId,
+          sessionId: session.id,
           questionNumber:
             currentQuestion.questionNumber + 1,
           question: result.nextQuestion,

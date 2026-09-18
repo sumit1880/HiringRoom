@@ -36,6 +36,13 @@ export async function protect(
       return next(new ApiError(401, "User not found"));
     }
 
+    // A user can be deactivated (e.g. by an admin) after their token was
+    // issued — without this check, a still-valid 7-day JWT keeps working
+    // for a deactivated account for up to a week.
+    if (!user.isActive) {
+      return next(new ApiError(403, "This account has been deactivated"));
+    }
+
     req.user = user;
 
     next();

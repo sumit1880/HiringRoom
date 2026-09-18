@@ -1,11 +1,11 @@
 import { prisma } from "../config/prisma.js";
 import { resumeProcessor } from "../rag/resumeProcessor.js";
-import { textChunker } from "../rag/textChunker.js";
-import { embeddingService } from "../rag/embedding.js";
-import { vectorStore } from "../rag/vectorStore.js";
 import { aiService } from "./ai.service.js";
 import { ApiError } from "../utils/ApiError.js";
-import { randomUUID } from "crypto";
+import {
+  resumeProcessingQueue,
+  ResumeProcessingJobData,
+} from "../config/queue.js";
 
 interface ResumeClassification {
   isResume: boolean;
@@ -121,11 +121,11 @@ export const uploadResume = async (
   // Step 1: Extract text from PDF
   const extractedText = await resumeProcessor.extractText(file.buffer);
 
-  // Step 1.5: Validate this is actually a resume BEFORE saving, chunking,
-  // or creating embeddings. Rejecting here leaves any previous valid
+  // Step 1.5: Validate this is actually a resume BEFORE saving or
+  // queuing any processing. Rejecting here leaves any previous valid
   // resume completely untouched, and nothing has been persisted or
-  // written to the vector store yet — the in-memory upload (multer
-  // memoryStorage, no file written to disk) is simply discarded.
+  // queued yet — the in-memory upload (multer memoryStorage, no file
+  // written to disk) is simply discarded.
   const classification = await classifyDocument(extractedText);
 
   console.log(
@@ -139,30 +139,14 @@ export const uploadResume = async (
     );
   }
 
-  // Step 2: Split into chunks
-  const chunks = textChunker.split(extractedText);
-
-  console.log(`Chunks created: ${chunks.length}`);
-
-  // Step 3: Generate embeddings
-for (const chunk of chunks) {
-  const embedding =
-    await embeddingService.generateEmbedding(chunk);
-
-  await vectorStore.addDocument(
-    randomUUID(),
-    chunk,
-    embedding,
-    userId
-  );
-
-  console.log(
-    "Stored:",
-    chunk.substring(0, 60)
-  );
-}
-
-  // Step 4: Save resume
+  // Step 2: Save the resume row immediately as PENDING and return —
+  // chunking + embedding generation is expensive (a PDF-parse-sized
+  // resume can be dozens of chunks) and previously ran synchronously
+  // inside this request, risking timeouts and blocking the request
+  // thread. It's now handled by the background worker (see src/worker.ts)
+  // via the resume-processing queue; the client already polls
+  // embeddingStatus (PENDING -> PROCESSING -> COMPLETED/FAILED) since the
+  // frontend's resumeService already models these states.
   const resume = await prisma.resume.create({
     data: {
       userId,
@@ -170,29 +154,51 @@ for (const chunk of chunks) {
       mimeType: file.mimetype,
       fileUrl: "local-upload",
       extractedText,
-      embeddingStatus: "COMPLETED",
+      embeddingStatus: "PENDING",
     },
   });
 
- 
+  await resumeProcessingQueue.add("process-resume", {
+    resumeId: resume.id,
+    userId,
+    extractedText,
+  } satisfies ResumeProcessingJobData);
 
   return resume;
 };
 
-export const getUserResumes = async (userId: string) => {
+export const getUserResumes = async (userId: string, page = 1, limit = 20) => {
+  const safeLimit = Math.min(Math.max(limit, 1), 100);
+  const safePage = Math.max(page, 1);
+
   // Used by the "list my resumes" endpoint (interview creation resume
   // picker) — deliberately excludes extractedText/embeddings so we never
   // ship large resume content just to populate a selection list.
-  return prisma.resume.findMany({
-    where: { userId },
-    orderBy: { uploadedAt: "desc" },
-    select: {
-      id: true,
-      originalName: true,
-      uploadedAt: true,
-      embeddingStatus: true,
+  const [resumes, total] = await Promise.all([
+    prisma.resume.findMany({
+      where: { userId },
+      orderBy: { uploadedAt: "desc" },
+      skip: (safePage - 1) * safeLimit,
+      take: safeLimit,
+      select: {
+        id: true,
+        originalName: true,
+        uploadedAt: true,
+        embeddingStatus: true,
+      },
+    }),
+    prisma.resume.count({ where: { userId } }),
+  ]);
+
+  return {
+    resumes,
+    pagination: {
+      page: safePage,
+      limit: safeLimit,
+      total,
+      totalPages: Math.ceil(total / safeLimit),
     },
-  });
+  };
 };
 
 export const getResumeById = async (id: string, userId: string) => {
@@ -204,7 +210,97 @@ export const getResumeById = async (id: string, userId: string) => {
   });
 };
 
+interface AtsScoreResult {
+  score: number;
+  summary: string;
+  strengths: string[];
+  improvements: string[];
+  missingKeywords: string[];
+}
+
+function parseAtsScoreResponse(text: string): AtsScoreResult {
+  const cleaned = text
+    .replace(/```json/g, "")
+    .replace(/```/g, "")
+    .replace(/^json/i, "")
+    .trim();
+
+  return JSON.parse(cleaned);
+}
+
+/**
+ * ATS-style resume scoring — reuses the same AI-provider abstraction as
+ * classifyDocument() above, scoring how well a resume would parse and
+ * read for an Applicant Tracking System / recruiter screen, optionally
+ * targeted at a specific job description.
+ */
+export const scoreResumeATS = async (
+  id: string,
+  userId: string,
+  jobDescription?: string
+): Promise<AtsScoreResult> => {
+  const resume = await getResumeById(id, userId);
+
+  if (!resume) {
+    throw new ApiError(404, "Resume not found");
+  }
+
+  if (!resume.extractedText) {
+    throw new ApiError(400, "Resume text is not available yet. Please wait for processing to finish.");
+  }
+
+  const jdBlock = jobDescription?.trim()
+    ? `\nScore this resume specifically against the following job description — weight keyword/skill alignment with it heavily:\n\n${jobDescription.trim().substring(0, 3000)}\n`
+    : "\nNo specific job description was provided — score against general ATS best practices for this candidate's apparent field.\n";
+
+  const prompt = `
+You are an ATS (Applicant Tracking System) resume screening expert.
+
+Evaluate the following resume for ATS-friendliness and recruiter readability.
+${jdBlock}
+Resume:
+
+${resume.extractedText.substring(0, 4000)}
+
+Return ONLY valid JSON in this exact shape:
+
+{
+  "score": number,
+  "summary": "...",
+  "strengths": ["..."],
+  "improvements": ["..."],
+  "missingKeywords": ["..."]
+}
+
+Rules:
+- "score" is an integer 0-100 representing overall ATS/recruiter fit.
+- "summary" is under 40 words.
+- "strengths" and "improvements" each contain 2-5 short, specific items.
+- "missingKeywords" lists 0-8 relevant skills/keywords the resume is missing (empty array if none, or if no job description was given and the resume is already strong).
+- Do NOT wrap JSON inside markdown.
+`.trim();
+
+  let response: string;
+
+  try {
+    response = await aiService.generate(prompt);
+  } catch (error) {
+    console.error("[Resume ATS Score] AI provider call failed:", error);
+    throw new ApiError(500, "Could not score this resume right now. Please try again.");
+  }
+
+  try {
+    return parseAtsScoreResponse(response);
+  } catch {
+    console.error("[Resume ATS Score] Failed to parse AI response:", response);
+    throw new ApiError(500, "Could not score this resume right now. Please try again.");
+  }
+};
+
 export const deleteResume = async (id: string, userId: string) => {
+  // ResumeChunk.resumeId now has ON DELETE CASCADE (see the pgvector
+  // migration) — deleting the resume row also deletes its chunks at the
+  // database level. Previously chunks were never cleaned up here at all.
   return prisma.resume.deleteMany({
     where: {
       id,

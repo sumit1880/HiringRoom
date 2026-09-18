@@ -7,6 +7,7 @@ import {
   uploadResume,
   getUserResumes,
   getResumeById,
+  scoreResumeATS,
   deleteResume,
 } from "../services/resume.service.js";
 
@@ -33,11 +34,19 @@ export const getAll = asyncHandler(async (req: Request, res: Response) => {
     throw new ApiError(401, "Authentication required");
   }
 
-  const resumes = await getUserResumes(req.user.id);
+  const page = Number(req.query.page);
+  const limit = Number(req.query.limit);
+
+  const { resumes, pagination } = await getUserResumes(
+    req.user.id,
+    Number.isFinite(page) && page > 0 ? page : undefined,
+    Number.isFinite(limit) && limit > 0 ? limit : undefined
+  );
 
   res.status(200).json({
     success: true,
     data: resumes,
+    pagination,
   });
 });
 
@@ -64,5 +73,24 @@ export const remove = asyncHandler(async (req: Request, res: Response) => {
   res.status(200).json({
     success: true,
     message: "Resume deleted successfully",
+  });
+});
+
+export const scoreATS = asyncHandler(async (req: Request, res: Response) => {
+  if (!req.user) {
+    throw new ApiError(401, "Authentication required");
+  }
+
+  const { jobDescription } = req.body ?? {};
+
+  const result = await scoreResumeATS(
+    req.params.id,
+    req.user.id,
+    typeof jobDescription === "string" ? jobDescription : undefined
+  );
+
+  res.status(200).json({
+    success: true,
+    data: result,
   });
 });

@@ -60,8 +60,7 @@ export const api = {
   patch: <T>(path: string, body?: unknown) =>
     request<T>(path, { method: "PATCH", body: body ? JSON.stringify(body) : undefined }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
-  upload: async <T>(path: string, file: File, onProgress?: (pct: number) => void): Promise<T> => {
-    return new Promise((resolve, reject) => {
+  upload: async <T>(path: string, file: File, onProgress?: (pct: number) => void): Promise<T> => {    return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest()
       const formData = new FormData()
       formData.append("resume", file)
@@ -82,6 +81,93 @@ export const api = {
       if (auth) xhr.setRequestHeader("Authorization", auth)
       xhr.send(formData)
     })
+  },
+  /**
+   * POSTs to a Server-Sent-Events endpoint and yields `{ event, data }`
+   * pairs as they arrive. The backend's SSE endpoints (interview
+   * start/answer/messages `/stream` routes) all use named events
+   * (`chunk`, `done`, `error`, ...) with a single JSON payload per event.
+   */
+  /**
+   * Fetches a binary endpoint (e.g. a PDF report) with the auth header
+   * attached and triggers a browser download — a plain <a href> can't
+   * carry the Bearer token this app uses, so direct navigation to a
+   * protected download route would 401.
+   */
+  download: async (path: string, filename: string): Promise<void> => {
+    const res = await fetch(`${BASE_URL}${path}`, { headers: getAuthHeader() })
+    if (!res.ok) {
+      let message = res.statusText
+      try {
+        const json = await res.json()
+        message = json?.message ?? message
+      } catch {
+        /* no-op */
+      }
+      throw new ApiError(message, res.status)
+    }
+    const blob = await res.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement("a")
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  },
+  stream: async function* (
+    path: string,
+    body?: unknown
+  ): AsyncGenerator<{ event: string; data: any }, void, unknown> {
+    const res = await fetch(`${BASE_URL}${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...getAuthHeader(),
+      },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+
+    if (!res.ok || !res.body) {
+      let message = res.statusText
+      try {
+        const json = await res.json()
+        message = json?.message ?? message
+      } catch {
+        /* no-op */
+      }
+      throw new ApiError(message, res.status)
+    }
+
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buffer = ""
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buffer += decoder.decode(value, { stream: true })
+
+      const chunks = buffer.split("\n\n")
+      buffer = chunks.pop() ?? ""
+
+      for (const chunk of chunks) {
+        const lines = chunk.split("\n")
+        let event = "message"
+        let data = ""
+        for (const line of lines) {
+          if (line.startsWith("event:")) event = line.slice(6).trim()
+          if (line.startsWith("data:")) data = line.slice(5).trim()
+        }
+        if (!data) continue
+        try {
+          yield { event, data: JSON.parse(data) }
+        } catch {
+          /* ignore malformed frame */
+        }
+      }
+    }
   },
 }
 

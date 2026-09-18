@@ -1,13 +1,13 @@
 import { useCallback, useState } from "react"
 import { useDropzone } from "react-dropzone"
 import { motion, AnimatePresence } from "framer-motion"
-import { UploadCloud, FileText, CheckCircle2, XCircle, Loader2, Trash2 } from "lucide-react"
+import { UploadCloud, FileText, CheckCircle2, XCircle, Loader2, Trash2, Sparkles } from "lucide-react"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
 import { EmptyState, Skeleton } from "@/components/shared/States"
-import { useResume, useUploadResume, useDeleteResume } from "@/hooks/useResume"
+import { useResume, useUploadResume, useDeleteResume, useScoreResumeATS } from "@/hooks/useResume"
 import { cn } from "@/lib/utils"
 
 const steps = ["Uploading", "Parsing", "Extracting skills", "Ready"]
@@ -22,6 +22,7 @@ export function ResumePage() {
   })
   const [pendingFile, setPendingFile] = useState<File | null>(null)
   const deleteResume = useDeleteResume()
+  const scoreATS = useScoreResumeATS()
 
   const onDrop = useCallback(
     (accepted: File[]) => {
@@ -138,6 +139,46 @@ export function ResumePage() {
             <p className="text-sm text-muted-foreground">{resume.summary}</p>
             <div className="flex flex-wrap gap-2">
               {resume.skills?.map((s) => <Badge key={s} variant="secondary">{s}</Badge>)}
+            </div>
+
+            <div className="border-t border-white/[0.06] pt-4">
+              {!scoreATS.data ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => scoreATS.mutate({ id: resume.id })}
+                  loading={scoreATS.isPending}
+                >
+                  <Sparkles className="h-4 w-4" /> Check ATS score
+                </Button>
+              ) : (
+                <div className="space-y-3">
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl font-semibold">{scoreATS.data.score}</span>
+                    <span className="text-xs text-muted-foreground">/ 100 ATS fit</span>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{scoreATS.data.summary}</p>
+                  {scoreATS.data.strengths.length > 0 && (
+                    <div className="text-xs">
+                      <span className="font-medium text-emerald-400">Strengths: </span>
+                      <span className="text-muted-foreground">{scoreATS.data.strengths.join(", ")}</span>
+                    </div>
+                  )}
+                  {scoreATS.data.improvements.length > 0 && (
+                    <div className="text-xs">
+                      <span className="font-medium text-amber-400">Improve: </span>
+                      <span className="text-muted-foreground">{scoreATS.data.improvements.join(", ")}</span>
+                    </div>
+                  )}
+                  {scoreATS.data.missingKeywords.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5">
+                      {scoreATS.data.missingKeywords.map((k) => (
+                        <Badge key={k} variant="secondary">{k}</Badge>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

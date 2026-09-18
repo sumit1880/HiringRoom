@@ -8,8 +8,11 @@ import {
   completeInterview,
   deleteInterview,
   startInterview,
+  startInterviewStream,
   answerInterviewQuestion,
+  answerInterviewQuestionStream,
   getInterviewFeedback,
+  getInterviewReportPdf,
 } from "../controllers/interview.controller.js";
 
 const router = Router();
@@ -24,13 +27,17 @@ router.get("/:id", getInterviewById);
 
 // ⭐ NEW
 router.post("/:id/start", startInterview);
+router.post("/:id/start/stream", startInterviewStream);
 
 router.patch("/:id/complete", completeInterview);
 
 router.delete("/:id", deleteInterview);
 
 router.post("/:id/answer", answerInterviewQuestion);
+router.post("/:id/answer/stream", answerInterviewQuestionStream);
 
 router.get("/:id/feedback", getInterviewFeedback);
+
+router.get("/:id/report.pdf", getInterviewReportPdf);
 
 export default router;

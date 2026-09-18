@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useParams } from "react-router-dom"
 import { motion } from "framer-motion"
+import { toast } from "sonner"
 import {
   ThumbsUp,
   ThumbsDown,
@@ -11,6 +12,7 @@ import {
   Minus,
   CheckCircle2,
   Circle,
+  Download,
 } from "lucide-react"
 import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts"
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card"
@@ -19,6 +21,7 @@ import { Badge } from "@/components/ui/badge"
 import { AILoadingState } from "@/components/shared/AILoadingState"
 import { AnimatedCounter, ScrollReveal } from "@/components/shared/motion"
 import { useFeedback } from "@/hooks/useFeedback"
+import { interviewService } from "@/services/interviewService"
 import { cn } from "@/lib/utils"
 
 function getScoreTier(score: number) {
@@ -190,6 +193,19 @@ export function FeedbackPage() {
             {trendDelta > 0 ? `+${trendDelta}` : trendDelta} vs your last session
           </Badge>
         )}
+
+        <button
+          onClick={() => {
+            toast.promise(interviewService.downloadReport(sessionId), {
+              loading: "Preparing your report…",
+              success: "Report downloaded",
+              error: "Couldn't generate the report. Try again.",
+            })
+          }}
+          className="inline-flex items-center gap-1.5 rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:border-white/20 hover:text-foreground"
+        >
+          <Download className="h-3.5 w-3.5" /> Download PDF report
+        </button>
       </ScrollReveal>
 
       <ScrollReveal>

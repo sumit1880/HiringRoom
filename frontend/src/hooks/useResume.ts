@@ -3,12 +3,29 @@ import { toast } from "sonner"
 import { resumeService } from "@/services/resumeService"
 
 export function useResume() {
-  return useQuery({ queryKey: ["resume"], queryFn: resumeService.getCurrent })
+  return useQuery({
+    queryKey: ["resume"],
+    queryFn: resumeService.getCurrent,
+    refetchInterval: (query) => {
+      const status = query.state.data?.status
+      return status === "uploading" || status === "parsing" ? 2000 : false
+    },
+  })
 }
 
 export function useResumes() {
-  return useQuery({ queryKey: ["resumes"], queryFn: resumeService.getAll })
+  return useQuery({
+    queryKey: ["resumes"],
+    queryFn: resumeService.getAll,
+    refetchInterval: (query) => {
+      const anyProcessing = query.state.data?.some(
+        (r) => r.status === "uploading" || r.status === "parsing"
+      )
+      return anyProcessing ? 2000 : false
+    },
+  })
 }
+
 
 export function useUploadResume(onProgress?: (pct: number) => void) {
   const qc = useQueryClient()

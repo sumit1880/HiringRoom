@@ -31,6 +31,14 @@ export const authService = {
     )
     return { user: toUser(res.data.user), tokens: { accessToken: res.data.token } }
   },
+  devLogin: async (email?: string, name?: string): Promise<{ user: User; tokens: AuthTokens }> => {
+    const res = await api.post<ApiEnvelope<{ token: string; user: GoogleAuthResponseUser }>>(
+      "/auth/dev-login",
+      { email, name }
+    )
+    return { user: toUser(res.data.user), tokens: { accessToken: res.data.token } }
+  },
+
   me: async (): Promise<User> => {
     if (USE_MOCKS) return delay(mockUser, 300)
     const res = await api.get<ApiEnvelope<User>>("/users/me")

@@ -8,7 +8,7 @@ import { Orb } from "@/components/shared/Orb"
 
 export function LoginPage() {
   const [status, setStatus] = useState<"idle" | "loading" | "success">("idle")
-  const { loginWithGoogle } = useAuth()
+  const { loginWithGoogle, loginAsDemo } = useAuth()
   const navigate = useNavigate()
 
   const handleCredential = async (idToken: string) => {
@@ -24,9 +24,22 @@ export function LoginPage() {
     }
   }
 
+  const handleDemoLogin = async () => {
+    setStatus("loading")
+    try {
+      await loginAsDemo()
+      setStatus("success")
+      toast.success("Welcome to TheHiringRoom Demo")
+      setTimeout(() => navigate("/dashboard"), 500)
+    } catch {
+      setStatus("idle")
+      toast.error("Demo login failed. Make sure backend is running.")
+    }
+  }
+
   return (
-    <AuthLayout title="Welcome back" subtitle="Sign in with Google to pick up where you left off.">
-      <div className="flex flex-col items-center gap-6">
+    <AuthLayout title="Welcome back" subtitle="Sign in to your mock interview studio.">
+      <div className="flex flex-col items-center gap-5 w-full">
         {status === "success" ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Orb state="idle" size={28} /> Signed in — redirecting…
@@ -36,9 +49,27 @@ export function LoginPage() {
             <Orb state="thinking" size={28} /> Signing you in…
           </div>
         ) : (
-          <GoogleSignInButton onCredential={handleCredential} text="signin_with" />
+          <>
+            <GoogleSignInButton onCredential={handleCredential} text="signin_with" />
+            
+            <div className="flex items-center gap-3 w-full my-1">
+              <div className="h-[1px] flex-1 bg-border/60" />
+              <span className="text-[11px] font-medium tracking-wider text-muted-foreground uppercase">or</span>
+              <div className="h-[1px] flex-1 bg-border/60" />
+            </div>
+
+            <button
+              type="button"
+              onClick={handleDemoLogin}
+              className="w-full py-2.5 px-4 rounded-xl text-sm font-medium border border-primary/20 bg-primary/5 hover:bg-primary/10 text-foreground transition-all duration-200 flex items-center justify-center gap-2 hover:border-primary/40 active:scale-[0.99]"
+            >
+              <Orb state="idle" size={16} />
+              Continue as Demo Candidate
+            </button>
+          </>
         )}
       </div>
+
 
       <p className="mt-8 text-center text-xs text-muted-foreground">
         By continuing you agree to our <a href="#" className="underline hover:text-foreground">Terms</a> and{" "}

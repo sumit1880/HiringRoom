@@ -7,6 +7,7 @@ interface AuthContextValue {
   isLoading: boolean
   isAuthenticated: boolean
   loginWithGoogle: (idToken: string) => Promise<void>
+  loginAsDemo: (email?: string, name?: string) => Promise<void>
   logout: () => Promise<void>
   deleteAccount: () => Promise<void>
 }
@@ -36,6 +37,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(user)
   }
 
+  const loginAsDemo = async (email?: string, name?: string) => {
+    const { user, tokens } = await authService.devLogin(email, name)
+    localStorage.setItem("access_token", tokens.accessToken)
+    setUser(user)
+  }
+
+
   const logout = async () => {
     await authService.logout()
     localStorage.removeItem("access_token")
@@ -49,7 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
 
   return (
-    <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, loginWithGoogle, logout, deleteAccount }}>
+    <AuthContext.Provider value={{ user, isLoading, isAuthenticated: !!user, loginWithGoogle, loginAsDemo, logout, deleteAccount }}>
       {children}
     </AuthContext.Provider>
   )

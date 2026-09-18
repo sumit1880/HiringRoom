@@ -15,7 +15,6 @@ import {
   Download,
   Copy,
   RotateCcw,
-  Sparkles,
   Code2,
   MessageSquare,
 } from "lucide-react"

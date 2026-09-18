@@ -10,7 +10,7 @@ import { Skeleton } from "@/components/shared/States"
 import { EmptyState } from "@/components/shared/States"
 import { Orb } from "@/components/shared/Orb"
 import { useRecentSessions, useAchievements, useDashboardStats } from "@/hooks/useDashboard"
-import type { DashboardStats, InterviewType } from "@/types"
+import type { DashboardStats } from "@/types"
 import { cn } from "@/lib/utils"
 
 export function RecentInterviews() {

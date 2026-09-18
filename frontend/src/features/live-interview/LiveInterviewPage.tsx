@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import { toast } from "sonner"
@@ -56,13 +56,11 @@ export function LiveInterviewPage() {
   // gives the "typing in" effect on both the opening question and every
   // follow-up question.
   const [streamingText, setStreamingText] = useState<string | null>(null)
-  const [isStreamingQuestion, setIsStreamingQuestion] = useState(false)
   const isLoading = questions.length === 0 && !streamingText
 
   useEffect(() => {
     if (!sessionId) return
     let cancelled = false
-    setIsStreamingQuestion(true)
     setStreamingText("")
     interviewService
       .startInterviewStream(sessionId, (partial) => {
@@ -79,7 +77,6 @@ export function LiveInterviewPage() {
       })
       .finally(() => {
         if (!cancelled) {
-          setIsStreamingQuestion(false)
           setStreamingText(null)
         }
       })
@@ -159,16 +156,21 @@ export function LiveInterviewPage() {
       })
   }
 
+  const handleSubmitRef = useRef(handleSubmit)
+  handleSubmitRef.current = handleSubmit
+  const toggleMicRef = useRef(toggleMic)
+  toggleMicRef.current = toggleMic
+
   // Keyboard shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
         e.preventDefault()
-        handleSubmit()
+        handleSubmitRef.current()
       }
       if (e.altKey && (e.key === "m" || e.key === "M")) {
         e.preventDefault()
-        toggleMic()
+        toggleMicRef.current()
       }
       if (e.key === "Escape") {
         setIsPaused((p) => !p)
@@ -176,7 +178,7 @@ export function LiveInterviewPage() {
     }
     window.addEventListener("keydown", handleKeyDown)
     return () => window.removeEventListener("keydown", handleKeyDown)
-  }, [answer, isSubmitting, isListening, question])
+  }, [])
 
   const handleEnd = () => {
     if (isListening) stopListening()

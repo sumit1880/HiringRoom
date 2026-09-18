@@ -1,4 +1,4 @@
-import rateLimit from "express-rate-limit";
+import rateLimit, { ipKeyGenerator } from "express-rate-limit";
 import { RedisStore } from "rate-limit-redis";
 import { redis } from "../config/redis.js";
 
@@ -24,8 +24,8 @@ function makeLimiter(opts: {
     store: makeRedisStore(opts.prefix),
     // Rate limit per authenticated user when available (set by `protect`,
     // which runs before these limiters on every route that uses them),
-    // falling back to IP for unauthenticated routes like /auth/google.
-    keyGenerator: (req) => req.user?.id ?? req.ip ?? "anonymous",
+    // falling back to IP using ipKeyGenerator for IPv6 subnet normalization.
+    keyGenerator: (req) => req.user?.id ?? (req.ip ? ipKeyGenerator(req.ip) : "anonymous"),
     message: {
       success: false,
       message: opts.message,
@@ -60,3 +60,4 @@ export const generalRateLimiter = makeLimiter({
   max: Number(process.env.GENERAL_RATE_LIMIT_MAX) || 300,
   message: "Too many requests. Please slow down and try again shortly.",
 });
+

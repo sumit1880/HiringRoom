@@ -87,3 +87,36 @@ export async function authenticateWithGoogle(data: GoogleAuthInput) {
     },
   };
 }
+
+export async function devLogin(email = "alex@example.com", name = "Alex Rivera") {
+  if (env.NODE_ENV === "production") {
+    throw new ApiError(403, "Dev login is not available in production");
+  }
+
+  let user = await prisma.user.findUnique({ where: { email } });
+  if (!user) {
+    user = await prisma.user.create({
+      data: {
+        name,
+        email,
+        authProvider: "LOCAL",
+      },
+    });
+  }
+
+  const token = generateToken({
+    userId: user.id,
+    email: user.email,
+  });
+
+  return {
+    token,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      profileImage: user.profileImage,
+    },
+  };
+}

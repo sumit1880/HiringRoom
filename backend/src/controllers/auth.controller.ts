@@ -15,3 +15,15 @@ export const googleAuth = asyncHandler(async (req: Request, res: Response) => {
     data: result,
   });
 });
+
+export const devLogin = asyncHandler(async (req: Request, res: Response) => {
+  const { email, name } = req.body || {};
+  const { devLogin: doDevLogin } = await import("../services/auth.service.js");
+  const result = await doDevLogin(email, name);
+
+  res.status(200).json({
+    success: true,
+    message: "Signed in with Dev Login",
+    data: result,
+  });
+});

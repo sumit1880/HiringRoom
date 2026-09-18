@@ -28,17 +28,31 @@ export class JsonFieldStreamExtractor {
     this.buffer += chunk
 
     if (!this.fieldStarted) {
-      const markerIndex = this.buffer.indexOf(this.fieldMarker)
-      if (markerIndex === -1) return this.value
+      let searchPos = 0
+      while (true) {
+        const markerIndex = this.buffer.indexOf(this.fieldMarker, searchPos)
+        if (markerIndex === -1) return this.value
 
-      // Find the opening quote of the value, after "fieldName":
-      const afterMarker = this.buffer.slice(markerIndex + this.fieldMarker.length)
-      const colonMatch = afterMarker.match(/^\s*:\s*"/)
-      if (!colonMatch) return this.value
+        // Find the opening quote of the value, after "fieldName":
+        const afterMarker = this.buffer.slice(markerIndex + this.fieldMarker.length)
+        const colonMatch = afterMarker.match(/^\s*:\s*"/)
+        if (colonMatch) {
+          this.fieldStarted = true
+          this.buffer = afterMarker.slice(colonMatch[0].length)
+          break
+        }
 
-      this.fieldStarted = true
-      this.buffer = afterMarker.slice(colonMatch[0].length)
+        // If afterMarker is just whitespace or a colon waiting for the quote to arrive in the next chunk:
+        if (/^\s*:?\s*$/.test(afterMarker)) {
+          return this.value
+        }
+
+        // If afterMarker contains non-colon/quote characters, this was a false match
+        // (e.g. the word appeared inside another string field). Advance past it and keep searching.
+        searchPos = markerIndex + this.fieldMarker.length
+      }
     }
+
 
     // Consume characters until an unescaped closing quote.
     let i = 0

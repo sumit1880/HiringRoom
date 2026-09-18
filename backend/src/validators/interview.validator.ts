@@ -15,8 +15,9 @@ export const createInterviewSchema = z.object({
   ]),
 
   difficulty: z
-    .enum(["easy", "medium", "hard"])
+    .preprocess((val) => (typeof val === "string" ? val.toLowerCase() : val), z.enum(["easy", "medium", "hard"]))
     .default("medium"),
+
 
   resumeId: z
     .string()

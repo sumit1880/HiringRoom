@@ -30,9 +30,19 @@ class GeminiProvider implements AIProvider {
     return response.text ?? "";
   } catch (error: any) {
     if (error instanceof AIProviderError) throw error;
+    const statusCode =
+      typeof error.status === "number"
+        ? error.status
+        : typeof error.code === "number"
+        ? error.code
+        : error.status === "UNAVAILABLE"
+        ? 503
+        : error.status === "RESOURCE_EXHAUSTED"
+        ? 429
+        : 500;
     throw new AIProviderError(
       this.name,
-      error.status ?? 500,
+      statusCode,
       error.message ?? "Gemini Error"
     );
   }
@@ -50,9 +60,19 @@ class GeminiProvider implements AIProvider {
         if (text) yield text;
       }
     } catch (error: any) {
+      const statusCode =
+        typeof error.status === "number"
+          ? error.status
+          : typeof error.code === "number"
+          ? error.code
+          : error.status === "UNAVAILABLE"
+          ? 503
+          : error.status === "RESOURCE_EXHAUSTED"
+          ? 429
+          : 500;
       throw new AIProviderError(
         this.name,
-        error.status ?? 500,
+        statusCode,
         error.message ?? "Gemini streaming error"
       );
     }

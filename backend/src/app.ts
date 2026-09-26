@@ -24,17 +24,35 @@ app.set("trust proxy", 1);
 
 app.use(helmet());
 
-// In production ALLOWED_ORIGINS must be set (comma-separated). In
-// development we fall back to reflecting the request origin so local
-// frontend dev servers keep working without extra config.
+// Dynamic CORS: automatically allows any Vercel deployment (*.vercel.app),
+// localhost dev servers, and any explicit origins in ALLOWED_ORIGINS.
 app.use(
   cors({
-    origin:
-      env.NODE_ENV === "production"
-        ? env.ALLOWED_ORIGINS.length > 0
-          ? env.ALLOWED_ORIGINS
-          : false
-        : true,
+    origin: (origin, callback) => {
+      // Allow requests with no origin (mobile apps, curl, server-to-server)
+      if (!origin) return callback(null, true);
+
+      // Explicitly allowed in environment config
+      if (env.ALLOWED_ORIGINS.length > 0 && env.ALLOWED_ORIGINS.includes(origin)) {
+        return callback(null, true);
+      }
+
+      // Automatically allow Vercel deployments (*.vercel.app) & local dev
+      if (
+        /^https:\/\/.*\.vercel\.app$/.test(origin) ||
+        /^http:\/\/localhost(:\d+)?$/.test(origin) ||
+        /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)
+      ) {
+        return callback(null, true);
+      }
+
+      // Allow all in non-production
+      if (env.NODE_ENV !== "production") {
+        return callback(null, true);
+      }
+
+      return callback(new Error(`Origin ${origin} not allowed by CORS`));
+    },
     credentials: true,
   })
 );

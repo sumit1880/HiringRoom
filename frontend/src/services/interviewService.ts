@@ -99,7 +99,7 @@ createSession: async (config: InterviewConfig): Promise<InterviewSession> => {
   startInterviewStream: async (
     sessionId: string,
     onPartialQuestion: (text: string) => void
-  ): Promise<{ question: InterviewQuestion; durationMinutes: number; startedAt: string }> => {
+  ): Promise<{ question: InterviewQuestion; durationMinutes: number; startedAt: string; type?: string }> => {
     if (USE_MOCKS) {
       onPartialQuestion(mockQuestions[0].prompt)
       return delay({ question: mockQuestions[0], durationMinutes: 30, startedAt: new Date().toISOString() })
@@ -125,6 +125,7 @@ createSession: async (config: InterviewConfig): Promise<InterviewSession> => {
       question: toInterviewQuestion(finalData),
       durationMinutes: finalData.durationMinutes,
       startedAt: finalData.startedAt,
+      type: (finalData as any).type as string | undefined,
     }
   },
   getQuestions: async (sessionId: string): Promise<InterviewQuestion[]> => {

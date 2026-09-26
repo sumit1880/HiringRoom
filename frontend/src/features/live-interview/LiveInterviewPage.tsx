@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { useParams, useNavigate } from "react-router-dom"
 import { motion, AnimatePresence } from "framer-motion"
 import { toast } from "sonner"
-import { Mic, MicOff, PhoneOff, Send, ChevronLeft, ChevronRight, Pause, Play } from "lucide-react"
+import { Mic, MicOff, PhoneOff, Send, ChevronLeft, ChevronRight, Pause, Play, Code2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
 import { Progress } from "@/components/ui/progress"
@@ -12,6 +12,7 @@ import { Waveform } from "@/components/shared/Waveform"
 import { AILoadingState } from "@/components/shared/AILoadingState"
 import { useSpeechRecognition } from "@/hooks/useSpeechRecognition"
 import { interviewService } from "@/services/interviewService"
+import { CodeEditor } from "./CodeEditor"
 import { cn } from "@/lib/utils"
 import type { InterviewQuestion } from "@/types"
 
@@ -50,6 +51,12 @@ export function LiveInterviewPage() {
   const [durationMinutes, setDurationMinutes] = useState(30)
   const [startedAt, setStartedAt] = useState<string | undefined>(undefined)
   const [isPaused, setIsPaused] = useState(false)
+  // "DSA" means technical interview → show code editor panel
+  const [sessionType, setSessionType] = useState<string | null>(null)
+  const isTechnical = sessionType === "DSA"
+  // Candidate's code from the editor (appended to answer on submit for technical rounds)
+  const [code, setCode] = useState("")
+  const [showEditor, setShowEditor] = useState(true)
 
   // Text of the question currently being streamed in, shown live before
   // it's added to `questions` once the stream completes — this is what
@@ -71,6 +78,8 @@ export function LiveInterviewPage() {
         setQuestions((prev) => (prev.length === 0 ? [res.question] : prev))
         setDurationMinutes(res.durationMinutes)
         setStartedAt(res.startedAt)
+        // Detect DSA/technical interview to show the code editor panel
+        if (res.type) setSessionType(res.type)
       })
       .catch((err) => {
         if (!cancelled) toast.error(err?.message ?? "Failed to start the interview.")
@@ -136,8 +145,17 @@ export function LiveInterviewPage() {
     if (isListening) stopListening()
     setOrbState("thinking")
     setIsSubmitting(true)
+
+    // For technical (DSA) rounds, append the candidate's code as a fenced
+    // code block so the AI evaluator can assess both the explanation AND
+    // the actual implementation in one answer string.
+    const fullAnswer =
+      isTechnical && code.trim()
+        ? `${answer.trim()}\n\n\`\`\`\n${code.trim()}\n\`\`\``
+        : answer
+
     interviewService
-      .submitAnswerStream(sessionId, question.id, answer, (partial) => {
+      .submitAnswerStream(sessionId, question.id, fullAnswer, (partial) => {
         setStreamingText(partial)
       })
       .then((res) => {
@@ -302,6 +320,35 @@ export function LiveInterviewPage() {
           </div>
         )}
       </div>
+
+      {/* Code Editor — shown only for DSA / Technical interviews */}
+      {isTechnical && (
+        <div className="mt-4 rounded-2xl border border-emerald-500/20 bg-emerald-500/5">
+          <button
+            type="button"
+            onClick={() => setShowEditor((v) => !v)}
+            className="flex w-full items-center justify-between px-4 py-3 text-sm font-medium text-emerald-400 hover:text-emerald-300 transition-colors"
+          >
+            <span className="flex items-center gap-2">
+              <Code2 className="h-4 w-4" />
+              Code Editor
+              <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-mono text-emerald-500">
+                technical round
+              </span>
+            </span>
+            <span className="text-[11px] text-muted-foreground">
+              {showEditor ? "hide" : "show"}
+            </span>
+          </button>
+          {showEditor && (
+            <CodeEditor
+              onCodeChange={setCode}
+              disabled={isPaused || isSubmitting}
+              className="rounded-t-none border-t border-emerald-500/20"
+            />
+          )}
+        </div>
+      )}
 
       {/* Answer editor + controls */}
       <div className="mt-6 space-y-4">

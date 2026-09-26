@@ -112,9 +112,90 @@ class DashboardService {
   }
 
   async getStats(userId: string) {
-    const sessions = await this.getCompletedSessions(userId);
+    try {
+      const sessions = await this.getCompletedSessions(userId);
 
-    if (sessions.length === 0) {
+      if (!sessions || sessions.length === 0) {
+        return {
+          totalInterviews: 0,
+          averageScore: 0,
+          hoursPracticed: 0,
+          currentStreak: 0,
+          lastWeekAverage: 0,
+          improvementPercentage: 0,
+        };
+      }
+
+      const scored = sessions.map((session) => ({
+        session,
+        score: this.computeSessionScore(session),
+        duration: this.computeSessionDurationMinutes(session),
+      }));
+
+      const totalMinutes = scored.reduce((sum, s) => sum + s.duration, 0);
+      const hoursPracticed = Math.round((totalMinutes / 60) * 10) / 10;
+
+      const validScores = scored
+        .filter((s) => s.score !== null)
+        .map((s) => s.score as number);
+
+      const averageScore = validScores.length
+        ? Math.round(
+            validScores.reduce((a, b) => a + b, 0) / validScores.length
+          )
+        : 0;
+
+      const now = new Date();
+      const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+      const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
+
+      const lastWeekScores = scored
+        .filter(
+          (s) =>
+            s.score !== null &&
+            s.session.endedAt &&
+            new Date(s.session.endedAt) >= sevenDaysAgo
+        )
+        .map((s) => s.score as number);
+
+      const prevWeekScores = scored
+        .filter(
+          (s) =>
+            s.score !== null &&
+            s.session.endedAt &&
+            new Date(s.session.endedAt) >= fourteenDaysAgo &&
+            new Date(s.session.endedAt) < sevenDaysAgo
+        )
+        .map((s) => s.score as number);
+
+      const lastWeekAverage = lastWeekScores.length
+        ? Math.round(
+            lastWeekScores.reduce((a, b) => a + b, 0) / lastWeekScores.length
+          )
+        : 0;
+
+      const prevWeekAverage = prevWeekScores.length
+        ? prevWeekScores.reduce((a, b) => a + b, 0) / prevWeekScores.length
+        : 0;
+
+      const improvementPercentage =
+        prevWeekAverage > 0
+          ? Math.round(
+              ((lastWeekAverage - prevWeekAverage) / prevWeekAverage) * 100
+            )
+          : 0;
+
+      const currentStreak = this.computeCurrentStreak(sessions);
+
+      return {
+        totalInterviews: sessions.length,
+        averageScore,
+        hoursPracticed,
+        currentStreak,
+        lastWeekAverage,
+        improvementPercentage,
+      };
+    } catch {
       return {
         totalInterviews: 0,
         averageScore: 0,
@@ -124,122 +205,60 @@ class DashboardService {
         improvementPercentage: 0,
       };
     }
-
-    const scored = sessions.map((session) => ({
-      session,
-      score: this.computeSessionScore(session),
-      duration: this.computeSessionDurationMinutes(session),
-    }));
-
-    const totalMinutes = scored.reduce((sum, s) => sum + s.duration, 0);
-    const hoursPracticed = Math.round((totalMinutes / 60) * 10) / 10;
-
-    const validScores = scored
-      .filter((s) => s.score !== null)
-      .map((s) => s.score as number);
-
-    const averageScore = validScores.length
-      ? Math.round(
-          validScores.reduce((a, b) => a + b, 0) / validScores.length
-        )
-      : 0;
-
-    const now = new Date();
-    const sevenDaysAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-    const fourteenDaysAgo = new Date(now.getTime() - 14 * 24 * 60 * 60 * 1000);
-
-    const lastWeekScores = scored
-      .filter(
-        (s) =>
-          s.score !== null &&
-          s.session.endedAt &&
-          new Date(s.session.endedAt) >= sevenDaysAgo
-      )
-      .map((s) => s.score as number);
-
-    const prevWeekScores = scored
-      .filter(
-        (s) =>
-          s.score !== null &&
-          s.session.endedAt &&
-          new Date(s.session.endedAt) >= fourteenDaysAgo &&
-          new Date(s.session.endedAt) < sevenDaysAgo
-      )
-      .map((s) => s.score as number);
-
-    const lastWeekAverage = lastWeekScores.length
-      ? Math.round(
-          lastWeekScores.reduce((a, b) => a + b, 0) / lastWeekScores.length
-        )
-      : 0;
-
-    const prevWeekAverage = prevWeekScores.length
-      ? prevWeekScores.reduce((a, b) => a + b, 0) / prevWeekScores.length
-      : 0;
-
-    const improvementPercentage =
-      prevWeekAverage > 0
-        ? Math.round(
-            ((lastWeekAverage - prevWeekAverage) / prevWeekAverage) * 100
-          )
-        : 0;
-
-    const currentStreak = this.computeCurrentStreak(sessions);
-
-    return {
-      totalInterviews: sessions.length,
-      averageScore,
-      hoursPracticed,
-      currentStreak,
-      lastWeekAverage,
-      improvementPercentage,
-    };
   }
 
   async getRecentSessions(userId: string) {
-    const sessions = await prisma.interviewSession.findMany({
-      where: {
-        userId,
-        status: InterviewStatus.COMPLETED,
-      },
-      orderBy: {
-        endedAt: "desc",
-      },
-      take: 5,
-    });
+    try {
+      const sessions = await prisma.interviewSession.findMany({
+        where: {
+          userId,
+          status: InterviewStatus.COMPLETED,
+        },
+        orderBy: {
+          endedAt: "desc",
+        },
+        take: 5,
+      });
 
-    return sessions.map((session) => ({
-      id: session.id,
-      config: {
-        type: TYPE_MAP[session.type],
-        role: session.title,
-        difficulty: DIFFICULTY_MAP[session.difficulty],
-        durationMinutes: Math.round(
-          this.computeSessionDurationMinutes(session)
-        ),
-      },
-      status: "completed" as const,
-      startedAt: session.startedAt.toISOString(),
-      completedAt: session.endedAt
-        ? session.endedAt.toISOString()
-        : undefined,
-    }));
+      return sessions.map((session) => ({
+        id: session.id,
+        config: {
+          type: TYPE_MAP[session.type],
+          role: session.title,
+          difficulty: DIFFICULTY_MAP[session.difficulty],
+          durationMinutes: Math.round(
+            this.computeSessionDurationMinutes(session)
+          ),
+        },
+        status: "completed" as const,
+        startedAt: session.startedAt.toISOString(),
+        completedAt: session.endedAt
+          ? session.endedAt.toISOString()
+          : undefined,
+      }));
+    } catch {
+      return [];
+    }
   }
 
   async getScoreTrend(userId: string) {
-    const sessions = await this.getCompletedSessions(userId);
+    try {
+      const sessions = await this.getCompletedSessions(userId);
 
-    return sessions
-      .map((session) => ({
-        rawDate: session.endedAt ?? session.startedAt,
-        score: this.computeSessionScore(session),
-      }))
-      .filter((entry) => entry.score !== null)
-      .slice(-10)
-      .map((entry) => ({
-        date: formatShortDate(new Date(entry.rawDate)),
-        score: Math.round(entry.score as number),
-      }));
+      return sessions
+        .map((session) => ({
+          rawDate: session.endedAt ?? session.startedAt,
+          score: this.computeSessionScore(session),
+        }))
+        .filter((entry) => entry.score !== null)
+        .slice(-10)
+        .map((entry) => ({
+          date: formatShortDate(new Date(entry.rawDate)),
+          score: Math.round(entry.score as number),
+        }));
+    } catch {
+      return [];
+    }
   }
 
   async getAchievements(userId: string) {

@@ -30,8 +30,6 @@ export function StatCards() {
                     <Skeleton className="mt-4 h-7 w-16" />
                     <Skeleton className="mt-2 h-3 w-24" />
                   </>
-                ) : isError ? (
-                  <p className="text-xs text-destructive">Couldn't load</p>
                 ) : (
                   <>
                     <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 border border-primary/20">

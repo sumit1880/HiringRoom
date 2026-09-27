@@ -8,7 +8,7 @@ export const profileService = {
       select: { createdAt: true },
     })
 
-    // Completed sessions with feedback
+    // Completed sessions with feedback & question evaluations
     const sessions = await prisma.interviewSession.findMany({
       where: {
         userId,
@@ -16,15 +16,68 @@ export const profileService = {
       },
       include: {
         feedback: true,
+        questions: {
+          include: {
+            evaluation: true,
+          },
+        },
       },
       orderBy: { endedAt: 'desc' },
     })
 
     const interviewsCompleted = sessions.length
 
-    // Extract feedback records
+    // Extract feedback records or derive from evaluated questions
     const feedbacks = sessions
-      .map((s) => s.feedback)
+      .map((s) => {
+        if (s.feedback) {
+          const comm =
+            s.feedback.communicationScore <= 10
+              ? s.feedback.communicationScore * 10
+              : s.feedback.communicationScore
+          const tech =
+            s.feedback.technicalScore <= 10
+              ? s.feedback.technicalScore * 10
+              : s.feedback.technicalScore
+          const overall = s.feedback.overallScore
+          return {
+            communicationScore: comm,
+            technicalScore: tech,
+            overallScore: overall,
+          }
+        }
+
+        const answered = s.questions.filter((q) => q.evaluation)
+        if (answered.length === 0) return null
+
+        const techAvg =
+          (answered.reduce(
+            (sum, q) => sum + (q.evaluation?.technicalScore || 0),
+            0
+          ) /
+            answered.length) *
+          10
+        const commAvg =
+          (answered.reduce(
+            (sum, q) => sum + (q.evaluation?.communicationScore || 0),
+            0
+          ) /
+            answered.length) *
+          10
+        const confAvg =
+          (answered.reduce(
+            (sum, q) => sum + (q.evaluation?.confidenceScore || 0),
+            0
+          ) /
+            answered.length) *
+          10
+
+        return {
+          communicationScore: commAvg,
+          technicalScore: techAvg,
+          overallScore: (techAvg + commAvg + confAvg) / 3,
+        }
+      })
       .filter((f): f is NonNullable<typeof f> => f !== null)
 
     const avg = (arr: number[]): number =>
@@ -45,19 +98,38 @@ export const profileService = {
       avg(feedbacks.map((f) => f.technicalScore))
     )
 
-    // System design only
+    // System design skill
+    const systemDesignSessions = sessions.filter(
+      (s) => s.type === 'SYSTEM_DESIGN'
+    )
     const systemDesign = Math.round(
-      avg(
-        sessions
-          .filter((s) => s.type === 'SYSTEM_DESIGN')
-          .map((s) => s.feedback?.technicalScore ?? 0)
-      )
+      systemDesignSessions.length > 0
+        ? avg(
+            systemDesignSessions
+              .map((s) => {
+                if (s.feedback) {
+                  return s.feedback.technicalScore <= 10
+                    ? s.feedback.technicalScore * 10
+                    : s.feedback.technicalScore
+                }
+                const answered = s.questions.filter((q) => q.evaluation)
+                if (answered.length === 0) return 0
+                return (
+                  (answered.reduce(
+                    (sum, q) => sum + (q.evaluation?.technicalScore || 0),
+                    0
+                  ) /
+                    answered.length) *
+                  10
+                )
+              })
+              .filter((score) => score > 0)
+          )
+        : technicalDepth
     )
 
     // Overall score
-    const overallScore = Math.round(
-      avg(feedbacks.map((f) => f.overallScore))
-    )
+    const overallScore = Math.round(avg(feedbacks.map((f) => f.overallScore)))
 
     // Simple streak calculation
     const uniqueDays = new Set(

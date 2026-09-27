@@ -7,7 +7,7 @@ import { useDashboardStats } from "@/hooks/useDashboard"
 const iconFor = { totalInterviews: Mic, averageScore: Target, hoursPracticed: Clock, currentStreak: Flame } as const
 
 export function StatCards() {
-  const { data, isLoading, isError } = useDashboardStats()
+  const { data, isLoading } = useDashboardStats()
 
   const items = [
     { key: "totalInterviews", label: "Interviews completed", value: data?.totalInterviews ?? 0, suffix: "" },

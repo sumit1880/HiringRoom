@@ -150,14 +150,19 @@ class InterviewService {
         },
         include: {
           feedback: true,
-       questions: {
-  include: {
-    evaluation: true,
-  },
-  orderBy: {
-    questionNumber: 'asc',
-  },
-},
+          messages: {
+            orderBy: {
+              createdAt: 'asc',
+            },
+          },
+          questions: {
+            include: {
+              evaluation: true,
+            },
+            orderBy: {
+              questionNumber: 'asc',
+            },
+          },
         },
       });
 
@@ -181,6 +186,68 @@ class InterviewService {
         userId
       );
 
+    const answeredQuestions = session.questions.filter((q) => q.evaluation);
+
+    let overallScore: number | null = null;
+
+    if (answeredQuestions.length > 0) {
+      const technicalAverage =
+        answeredQuestions.reduce(
+          (sum, q) => sum + (q.evaluation?.technicalScore || 0),
+          0
+        ) / answeredQuestions.length;
+
+      const communicationAverage =
+        answeredQuestions.reduce(
+          (sum, q) => sum + (q.evaluation?.communicationScore || 0),
+          0
+        ) / answeredQuestions.length;
+
+      const confidenceAverage =
+        answeredQuestions.reduce(
+          (sum, q) => sum + (q.evaluation?.confidenceScore || 0),
+          0
+        ) / answeredQuestions.length;
+
+      const overall =
+        ((technicalAverage + communicationAverage + confidenceAverage) / 3) * 10;
+      overallScore = Math.round(overall);
+
+      const dedupe = (items: string[]) =>
+        Array.from(new Set(items.map((s) => s.trim()).filter(Boolean)));
+
+      const strengths = dedupe(
+        answeredQuestions.flatMap((q) => q.evaluation?.strengths ?? [])
+      ).join("\n");
+      const weaknesses = dedupe(
+        answeredQuestions.flatMap((q) => q.evaluation?.weaknesses ?? [])
+      ).join("\n");
+      const suggestions = dedupe(
+        answeredQuestions.map((q) => q.evaluation?.feedback ?? "")
+      ).join("\n");
+
+      await prisma.feedback.upsert({
+        where: { sessionId: session.id },
+        create: {
+          sessionId: session.id,
+          technicalScore: Math.round(technicalAverage * 10) / 10,
+          communicationScore: Math.round(communicationAverage * 10) / 10,
+          overallScore: Math.round(overall),
+          strengths: strengths || "Demonstrated solid foundation and active problem solving.",
+          weaknesses: weaknesses || "Continue practicing structured explanations.",
+          suggestions: suggestions || "Keep refining time complexity and edge case analysis.",
+        },
+        update: {
+          technicalScore: Math.round(technicalAverage * 10) / 10,
+          communicationScore: Math.round(communicationAverage * 10) / 10,
+          overallScore: Math.round(overall),
+          strengths: strengths || "Demonstrated solid foundation and active problem solving.",
+          weaknesses: weaknesses || "Continue practicing structured explanations.",
+          suggestions: suggestions || "Keep refining time complexity and edge case analysis.",
+        },
+      });
+    }
+
     return prisma.interviewSession.update({
       where: {
         id: session.id,
@@ -189,6 +256,10 @@ class InterviewService {
         status:
           InterviewStatus.COMPLETED,
         endedAt: new Date(),
+        ...(overallScore !== null ? { overallScore } : {}),
+      },
+      include: {
+        feedback: true,
       },
     });
   }

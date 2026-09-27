@@ -15,10 +15,10 @@ type BackendFeedback = {
   overallScore: number
 }
 
-const splitLines = (s: string): string[] =>
+export const splitLines = (s: string): string[] =>
   s.split("\n").map((v) => v.trim()).filter(Boolean)
 
-const toInterviewFeedback = (f: BackendFeedback): InterviewFeedback => ({
+export const toInterviewFeedback = (f: BackendFeedback): InterviewFeedback => ({
   sessionId: f.sessionId,
   overallScore: Math.round(f.overallScore),
   categories: [
@@ -36,9 +36,8 @@ export const feedbackService = {
     const res = await api.get<ApiEnvelope<BackendFeedback>>(`/interviews/${sessionId}/feedback`)
     return toInterviewFeedback(res.data)
   },
-  downloadReport: async (sessionId: string): Promise<Blob> => {
-    if (USE_MOCKS) return new Blob(["Mock feedback report"], { type: "application/pdf" })
-    const res = await fetch(`/api/interviews/${sessionId}/feedback/report`)
-    return res.blob()
+  downloadReport: async (sessionId: string): Promise<void> => {
+    if (USE_MOCKS) return delay(undefined, 300)
+    await api.download(`/interviews/${sessionId}/report.pdf`, `interview-report-${sessionId}.pdf`)
   },
 }

@@ -357,3 +357,53 @@ export const getInterviewReportPdf = asyncHandler(
     await streamInterviewReportPdf(req.params.id, req.user.id, res);
   }
 );
+
+export const getInterviewQuestions = asyncHandler(
+  async (req: Request, res: Response) => {
+    if (!req.user) {
+      throw new ApiError(401, "Authentication required");
+    }
+
+    const session = await interviewService.getSessionById(
+      req.params.id,
+      req.user.id
+    );
+
+    const questions = session.questions.map((q) => ({
+      id: q.id,
+      index: q.questionNumber,
+      total: session.questions.length,
+      prompt: q.question,
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: questions,
+    });
+  }
+);
+
+export const getInterviewTranscript = asyncHandler(
+  async (req: Request, res: Response) => {
+    if (!req.user) {
+      throw new ApiError(401, "Authentication required");
+    }
+
+    const session = await interviewService.getSessionById(
+      req.params.id,
+      req.user.id
+    );
+
+    const messages = (session.messages || []).map((m) => ({
+      id: m.id,
+      role: m.role === "AI" ? "ai" : "user",
+      content: m.content,
+      timestamp: m.createdAt.toISOString(),
+    }));
+
+    res.status(200).json({
+      success: true,
+      data: messages,
+    });
+  }
+);

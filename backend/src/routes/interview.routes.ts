@@ -13,6 +13,8 @@ import {
   answerInterviewQuestionStream,
   getInterviewFeedback,
   getInterviewReportPdf,
+  getInterviewQuestions,
+  getInterviewTranscript,
 } from "../controllers/interview.controller.js";
 
 const router = Router();
@@ -25,7 +27,10 @@ router.get("/", getAllInterviews);
 
 router.get("/:id", getInterviewById);
 
-// ⭐ NEW
+router.get("/:id/questions", getInterviewQuestions);
+
+router.get("/:id/transcript", getInterviewTranscript);
+
 router.post("/:id/start", startInterview);
 router.post("/:id/start/stream", startInterviewStream);
 

@@ -1,3 +1,4 @@
+import bcrypt from "bcrypt";
 import { OAuth2Client } from "google-auth-library";
 
 import { prisma } from "../config/prisma.js";
@@ -9,6 +10,101 @@ const googleClient = new OAuth2Client(env.GOOGLE_CLIENT_ID);
 
 interface GoogleAuthInput {
   idToken: string;
+}
+
+interface RegisterInput {
+  name: string;
+  email: string;
+  password: string;
+}
+
+interface LoginInput {
+  email: string;
+  password: string;
+}
+
+export async function registerWithEmailPassword(data: RegisterInput) {
+  const normalizedEmail = data.email.toLowerCase().trim();
+
+  const existingUser = await prisma.user.findUnique({
+    where: { email: normalizedEmail },
+  });
+
+  if (existingUser) {
+    throw new ApiError(409, "An account with this email already exists");
+  }
+
+  const hashedPassword = await bcrypt.hash(data.password, 10);
+
+  const user = await prisma.user.create({
+    data: {
+      name: data.name.trim(),
+      email: normalizedEmail,
+      password: hashedPassword,
+      authProvider: "LOCAL",
+    },
+  });
+
+  const token = generateToken({
+    userId: user.id,
+    email: user.email,
+  });
+
+  return {
+    token,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      profileImage: user.profileImage,
+    },
+  };
+}
+
+export async function loginWithEmailPassword(data: LoginInput) {
+  const normalizedEmail = data.email.toLowerCase().trim();
+
+  const user = await prisma.user.findUnique({
+    where: { email: normalizedEmail },
+  });
+
+  if (!user) {
+    throw new ApiError(401, "Invalid email or password");
+  }
+
+  if (!user.password) {
+    throw new ApiError(
+      400,
+      "This account was registered using Google. Please sign in with Google."
+    );
+  }
+
+  const isMatch = await bcrypt.compare(data.password, user.password);
+
+  if (!isMatch) {
+    throw new ApiError(401, "Invalid email or password");
+  }
+
+  if (!user.isActive) {
+    throw new ApiError(403, "This account has been deactivated");
+  }
+
+  const token = generateToken({
+    userId: user.id,
+    email: user.email,
+  });
+
+  return {
+    token,
+    user: {
+      id: user.id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      profileImage: user.profileImage,
+    },
+  };
 }
 
 export async function authenticateWithGoogle(data: GoogleAuthInput) {

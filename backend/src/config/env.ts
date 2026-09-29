@@ -41,4 +41,12 @@ export const env = {
   // Outbound AI provider HTTP call timeout (ms). Prevents a hung upstream
   // provider from holding a request open indefinitely.
   AI_PROVIDER_TIMEOUT_MS: Number(process.env.AI_PROVIDER_TIMEOUT_MS) || 30_000,
+  
+  TOP_K: Number(process.env.TOP_K || 5),
+  COOLDOWN_MS: Number(process.env.COOLDOWN_MS || 1800000),
+  EMBEDDING_CONCURRENCY: Number(process.env.EMBEDDING_CONCURRENCY || 5),
+  GEMINI_MODEL: process.env.GEMINI_MODEL || "gemini-flash-latest",
+  OPENROUTER_MODEL: process.env.OPENROUTER_MODEL || "deepseek/deepseek-chat-v3-0324",
+  GROQ_MODEL: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+  RESUME_MAX_CHARS: Number(process.env.RESUME_MAX_CHARS || 3000),
 };

@@ -4,8 +4,6 @@ import { ApiError } from "../utils/ApiError.js";
 
 import { createInterviewSchema } from "../validators/interview.validator.js";
 import { interviewService } from "../services/interview.service.js";
-import { streamInterviewReportPdf } from "../services/report.service.js";
-
 
 export const createInterview = asyncHandler(
   async (req: Request, res: Response) => {
@@ -348,15 +346,7 @@ export const getInterviewFeedback = asyncHandler(async (req, res) => {
   });
 });
 
-export const getInterviewReportPdf = asyncHandler(
-  async (req: Request, res: Response) => {
-    if (!req.user) {
-      throw new ApiError(401, "Authentication required");
-    }
 
-    await streamInterviewReportPdf(req.params.id, req.user.id, res);
-  }
-);
 
 export const getInterviewQuestions = asyncHandler(
   async (req: Request, res: Response) => {

@@ -1,8 +1,9 @@
 import { prisma } from "../config/prisma.js";
 import { embeddingService } from "./embedding.js";
 import { toVectorLiteral } from "./vectorStore.js";
+import { env } from "../config/env.js";
 
-const TOP_K = 5;
+const TOP_K = env.TOP_K;
 
 interface RetrievedChunk {
   content: string;

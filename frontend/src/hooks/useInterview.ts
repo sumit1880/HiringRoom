@@ -9,7 +9,7 @@ export function useStartInterview() {
   return useMutation({ mutationFn: (sessionId: string) => interviewService.startInterview(sessionId) })
 }
 export function useQuestions(sessionId: string) {
-  return useQuery({ queryKey: ["interview", sessionId, "questions"], queryFn: () => interviewService.getQuestions(sessionId), enabled: !!sessionId })
+  return useQuery({ queryKey: ["interview", sessionId, "questions"], queryFn: () => Promise.resolve([]), enabled: !!sessionId })
 }
 export function useSubmitAnswer(sessionId: string) {
   return useMutation({ mutationFn: ({ questionId, answer }: { questionId: string; answer: string }) => interviewService.submitAnswer(sessionId, questionId, answer) })

@@ -1,5 +1,5 @@
 import { api } from "./apiClient"
-import { USE_MOCKS, delay, mockResume, mockResumes } from "./mockData"
+
 import type { AtsScore, Resume } from "@/types"
 
 // Backend wraps every response as { success, message, data }.
@@ -41,7 +41,6 @@ export const resumeService = {
   // ordered most-recent-first); this UI only shows one at a time, so we
   // surface the most recently uploaded one.
   getCurrent: async (): Promise<Resume | null> => {
-    if (USE_MOCKS) return delay(mockResume)
     const res = await api.get<ApiEnvelope<BackendResume[]>>("/resumes")
     const [latest] = res.data
     return latest ? toResume(latest) : null
@@ -49,43 +48,23 @@ export const resumeService = {
   // Full list, used by the interview-setup resume picker so the user can
   // choose which uploaded resume a given interview should be based on.
   getAll: async (): Promise<Resume[]> => {
-    if (USE_MOCKS) return delay(mockResumes)
     const res = await api.get<ApiEnvelope<BackendResume[]>>("/resumes")
     return res.data.map(toResume)
   },
   upload: async (file: File, onProgress?: (pct: number) => void): Promise<Resume> => {
-    if (USE_MOCKS) {
-      for (let pct = 0; pct <= 100; pct += 20) {
-        // eslint-disable-next-line no-await-in-loop
-        await delay(undefined, 150)
-        onProgress?.(pct)
-      }
-      return delay({ ...mockResume, fileName: file.name, status: "ready" }, 400)
-    }
     const res = await api.upload<ApiEnvelope<BackendResume>>("/resumes/upload", file, onProgress)
     return toResume(res.data)
   },
   delete: async (id: string): Promise<void> => {
-    if (USE_MOCKS) return delay(undefined, 300)
     await api.delete(`/resumes/${id}`)
   },
   retry: async (id: string): Promise<Resume> => {
-    if (USE_MOCKS) return delay({ ...mockResume, status: "parsing" }, 300)
     const res = await api.post<ApiEnvelope<BackendResume>>(`/resumes/${id}/retry`)
     return toResume(res.data)
   },
 
   /** ATS-style scoring of a resume, optionally targeted at a job description. */
   scoreATS: async (id: string, jobDescription?: string): Promise<AtsScore> => {
-    if (USE_MOCKS) {
-      return delay({
-        score: 78,
-        summary: "Strong technical background; could use more quantified impact.",
-        strengths: ["Clear skills section", "Relevant recent experience"],
-        improvements: ["Add measurable outcomes", "Tighten summary to 2-3 lines"],
-        missingKeywords: jobDescription ? ["TypeScript", "CI/CD"] : [],
-      })
-    }
     const res = await api.post<{ success: boolean; data: AtsScore }>(`/resumes/${id}/score`, {
       jobDescription: jobDescription || undefined,
     })

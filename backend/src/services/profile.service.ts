@@ -15,7 +15,6 @@ export const profileService = {
         status: 'COMPLETED',
       },
       include: {
-        feedback: true,
         questions: {
           include: {
             evaluation: true,
@@ -30,23 +29,6 @@ export const profileService = {
     // Extract feedback records or derive from evaluated questions
     const feedbacks = sessions
       .map((s) => {
-        if (s.feedback) {
-          const comm =
-            s.feedback.communicationScore <= 10
-              ? s.feedback.communicationScore * 10
-              : s.feedback.communicationScore
-          const tech =
-            s.feedback.technicalScore <= 10
-              ? s.feedback.technicalScore * 10
-              : s.feedback.technicalScore
-          const overall = s.feedback.overallScore
-          return {
-            communicationScore: comm,
-            technicalScore: tech,
-            overallScore: overall,
-          }
-        }
-
         const answered = s.questions.filter((q) => q.evaluation)
         if (answered.length === 0) return null
 
@@ -107,11 +89,6 @@ export const profileService = {
         ? avg(
             systemDesignSessions
               .map((s) => {
-                if (s.feedback) {
-                  return s.feedback.technicalScore <= 10
-                    ? s.feedback.technicalScore * 10
-                    : s.feedback.technicalScore
-                }
                 const answered = s.questions.filter((q) => q.evaluation)
                 if (answered.length === 0) return 0
                 return (

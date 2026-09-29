@@ -75,7 +75,7 @@ export function LoginPage() {
             <form onSubmit={handleEmailLogin} className="w-full space-y-3">
               <Input
                 type="email"
-                placeholder="Enter your email (e.g. sumitatprakash09@gmail.com)"
+                placeholder="Enter your email (e.g. you@example.com)"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 className="h-11 rounded-xl bg-white/[0.03]"

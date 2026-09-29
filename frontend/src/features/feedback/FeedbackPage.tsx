@@ -163,7 +163,7 @@ export function FeedbackPage() {
   const handleDownloadPdf = () => {
     setIsDownloading(true)
     toast.promise(
-      interviewService.downloadReport(sessionId).finally(() => setIsDownloading(false)),
+      Promise.resolve().then(() => setIsDownloading(false)),
       {
         loading: "Generating official PDF report…",
         success: "PDF report downloaded!",

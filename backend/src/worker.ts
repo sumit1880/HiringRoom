@@ -80,11 +80,21 @@ worker.on("completed", (job) => {
   console.log(`[resume-processing] completed resume ${job.data.resumeId}`);
 });
 
-worker.on("failed", (job, err) => {
+worker.on("failed", async (job, err) => {
   console.error(
     `[resume-processing] failed resume ${job?.data.resumeId}:`,
     err?.message
   );
+  if (job?.data.resumeId) {
+    try {
+      await prisma.resume.update({
+        where: { id: job.data.resumeId },
+        data: { embeddingStatus: "FAILED" },
+      });
+    } catch (e) {
+      console.error("[resume-processing] failed to update DB on fail:", e);
+    }
+  }
 });
 
 console.log("Resume processing worker started.");

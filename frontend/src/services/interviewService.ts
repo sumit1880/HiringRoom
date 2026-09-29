@@ -1,5 +1,4 @@
 import { api } from "./apiClient"
-import { USE_MOCKS, delay, mockQuestions, mockTranscript } from "./mockData"
 import { JsonFieldStreamExtractor } from "@/lib/jsonFieldStream"
 import type { InterviewConfig, InterviewMessage, InterviewQuestion, InterviewSession } from "@/types"
 
@@ -61,7 +60,6 @@ const toInterviewSession = (s: BackendSession, config: InterviewConfig): Intervi
 
 export const interviewService = {
 createSession: async (config: InterviewConfig): Promise<InterviewSession> => {
-  if (USE_MOCKS) return delay({ id: "s_new", config, status: "in-progress", startedAt: new Date().toISOString() })
   if (!config.resumeId) {
     throw new Error("Please select a resume before starting an interview.")
   }
@@ -80,9 +78,6 @@ createSession: async (config: InterviewConfig): Promise<InterviewSession> => {
   // refresh). Returns the session's real duration/startedAt alongside the
   // question so the live page's timer is always backend-driven.
   startInterview: async (sessionId: string): Promise<{ question: InterviewQuestion; durationMinutes: number; startedAt: string }> => {
-    if (USE_MOCKS) {
-      return delay({ question: mockQuestions[0], durationMinutes: 30, startedAt: new Date().toISOString() })
-    }
     const res = await api.post<ApiEnvelope<BackendStartResponse>>(`/interviews/${sessionId}/start`)
     return {
       question: toInterviewQuestion(res.data),
@@ -100,11 +95,6 @@ createSession: async (config: InterviewConfig): Promise<InterviewSession> => {
     sessionId: string,
     onPartialQuestion: (text: string) => void
   ): Promise<{ question: InterviewQuestion; durationMinutes: number; startedAt: string; type?: string }> => {
-    if (USE_MOCKS) {
-      onPartialQuestion(mockQuestions[0].prompt)
-      return delay({ question: mockQuestions[0], durationMinutes: 30, startedAt: new Date().toISOString() })
-    }
-
     const extractor = new JsonFieldStreamExtractor("question")
     let finalData: BackendStartResponse | undefined
 
@@ -128,19 +118,9 @@ createSession: async (config: InterviewConfig): Promise<InterviewSession> => {
       type: (finalData as any).type as string | undefined,
     }
   },
-  getQuestions: async (sessionId: string): Promise<InterviewQuestion[]> => {
-    if (USE_MOCKS) return delay(mockQuestions)
-    return api.get(`/interviews/${sessionId}/questions`)
-  },
-  getTranscript: async (sessionId: string): Promise<InterviewMessage[]> => {
-    if (USE_MOCKS) return delay(mockTranscript)
-    return api.get(`/interviews/${sessionId}/transcript`)
-  },
+
+
   submitAnswer: async (sessionId: string, questionId: string, answer: string): Promise<{ nextQuestion?: InterviewQuestion }> => {
-    if (USE_MOCKS) {
-      const idx = mockQuestions.findIndex((q) => q.id === questionId)
-      return delay({ nextQuestion: mockQuestions[idx + 1] })
-    }
     // Backend infers the current pending question server-side; it only needs the answer text.
     const res = await api.post<ApiEnvelope<{ evaluation: unknown; nextQuestion: BackendQuestion }>>(
       `/interviews/${sessionId}/answer`,
@@ -160,13 +140,6 @@ createSession: async (config: InterviewConfig): Promise<InterviewSession> => {
     answer: string,
     onPartialQuestion: (text: string) => void
   ): Promise<{ nextQuestion?: InterviewQuestion; evaluation?: unknown }> => {
-    if (USE_MOCKS) {
-      const idx = mockQuestions.findIndex((q) => q.prompt)
-      const next = mockQuestions[idx + 1]
-      if (next) onPartialQuestion(next.prompt)
-      return delay({ nextQuestion: next })
-    }
-
     const extractor = new JsonFieldStreamExtractor("nextQuestion")
     let finalData: { evaluation: unknown; nextQuestion: BackendQuestion } | undefined
 
@@ -189,12 +162,6 @@ createSession: async (config: InterviewConfig): Promise<InterviewSession> => {
     }
   },
   completeSession: async (sessionId: string): Promise<void> => {
-    if (USE_MOCKS) return delay(undefined, 400)
    await api.patch(`/interviews/${sessionId}/complete`)
-  },
-  /** Downloads the backend's PDF report for this session. */
-  downloadReport: async (sessionId: string): Promise<void> => {
-    if (USE_MOCKS) return delay(undefined, 300)
-    await api.download(`/interviews/${sessionId}/report.pdf`, `interview-report-${sessionId}.pdf`)
   },
 }

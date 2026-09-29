@@ -12,10 +12,7 @@ import {
   answerInterviewQuestion,
   answerInterviewQuestionStream,
   getInterviewFeedback,
-  getInterviewReportPdf,
-  getInterviewQuestions,
-  getInterviewTranscript,
-} from "../controllers/interview.controller.js";
+  } from "../controllers/interview.controller.js";
 
 const router = Router();
 
@@ -27,9 +24,7 @@ router.get("/", getAllInterviews);
 
 router.get("/:id", getInterviewById);
 
-router.get("/:id/questions", getInterviewQuestions);
 
-router.get("/:id/transcript", getInterviewTranscript);
 
 router.post("/:id/start", startInterview);
 router.post("/:id/start/stream", startInterviewStream);
@@ -43,6 +38,6 @@ router.post("/:id/answer/stream", answerInterviewQuestionStream);
 
 router.get("/:id/feedback", getInterviewFeedback);
 
-router.get("/:id/report.pdf", getInterviewReportPdf);
+
 
 export default router;

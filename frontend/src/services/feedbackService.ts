@@ -1,5 +1,5 @@
 import { api } from "./apiClient"
-import { USE_MOCKS, delay, mockFeedback } from "./mockData"
+
 import type { InterviewFeedback } from "@/types"
 
 type ApiEnvelope<T> = { success: boolean; message?: string; data: T }
@@ -32,12 +32,7 @@ export const toInterviewFeedback = (f: BackendFeedback): InterviewFeedback => ({
 
 export const feedbackService = {
   getFeedback: async (sessionId: string): Promise<InterviewFeedback> => {
-    if (USE_MOCKS) return delay({ ...mockFeedback, sessionId }, 900)
     const res = await api.get<ApiEnvelope<BackendFeedback>>(`/interviews/${sessionId}/feedback`)
     return toInterviewFeedback(res.data)
-  },
-  downloadReport: async (sessionId: string): Promise<void> => {
-    if (USE_MOCKS) return delay(undefined, 300)
-    await api.download(`/interviews/${sessionId}/report.pdf`, `interview-report-${sessionId}.pdf`)
   },
 }

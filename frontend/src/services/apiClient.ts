@@ -37,6 +37,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   })
 
   if (!res.ok) {
+    if (res.status === 401) {
+      localStorage.removeItem("access_token")
+      window.location.href = "/login"
+    }
     let message = res.statusText
     try {
       const body = await res.json()

@@ -92,7 +92,6 @@ model InterviewSession {
   resumeId     String?
   resume       Resume?           @relation(fields: [resumeId], references: [id], onDelete: SetNull)
   messages     Message[]
-  feedback     Feedback?
 
   // Session-level interview-engine state. Kept intentionally small:
   // just enough to stop repeats and detect struggle streaks without
@@ -183,25 +182,6 @@ model ResumeChunk {
   @@index([resumeId])
 }
 
-model Feedback {
-  id                  String   @id @default(cuid())
-
-  strengths           String   @db.Text
-
-  weaknesses          String   @db.Text
-
-  suggestions         String   @db.Text
-
-  communicationScore  Float
-
-  technicalScore      Float
-
-  overallScore        Float
-
-  sessionId           String   @unique
-
-  session             InterviewSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-}
 
 model InterviewQuestion {
   id             String   @id @default(cuid())

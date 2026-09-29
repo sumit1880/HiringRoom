@@ -37,9 +37,8 @@ app.use(
         return callback(null, true);
       }
 
-      // Automatically allow Vercel deployments (*.vercel.app) & local dev
+      // Remove wildcard allowed Vercel deployments, use explicit ALLOWED_ORIGINS
       if (
-        /^https:\/\/.*\.vercel\.app$/.test(origin) ||
         /^http:\/\/localhost(:\d+)?$/.test(origin) ||
         /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin)
       ) {

@@ -18,6 +18,7 @@ class GeminiProvider implements AIProvider {
       this.ai.models.generateContent({
         model: "gemini-flash-latest",
         contents: prompt,
+        config: { maxOutputTokens: 2048 },
       }),
       new Promise<never>((_, reject) =>
         setTimeout(
@@ -53,6 +54,7 @@ class GeminiProvider implements AIProvider {
       const stream = await this.ai.models.generateContentStream({
         model: "gemini-flash-latest",
         contents: prompt,
+        config: { maxOutputTokens: 2048 },
       });
 
       for await (const chunk of stream) {

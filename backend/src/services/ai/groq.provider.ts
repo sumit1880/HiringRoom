@@ -19,6 +19,7 @@ class GroqProvider implements AIProvider {
           },
           body: JSON.stringify({
             model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+            max_tokens: 2048,
             messages: [
               {
                 role: "user",
@@ -67,6 +68,7 @@ class GroqProvider implements AIProvider {
           },
           body: JSON.stringify({
             model: process.env.GROQ_MODEL || "openai/gpt-oss-120b",
+            max_tokens: 2048,
             stream: true,
             messages: [{ role: "user", content: prompt }],
           }),

@@ -1,24 +1,59 @@
+
 import { AIProvider } from "./types.js";
 import { AIProviderError } from "./ai.error.js";
 import { fetchWithTimeout, parseOpenAIStyleSSE } from "./httpUtil.js";
 
+
+const OPENROUTER_URL =
+  "https://openrouter.ai/api/v1/chat/completions";
+
+const MODEL = "deepseek/deepseek-chat-v3-0324";
+const MAX_TOKENS = 2048;
+
 class OpenRouterProvider implements AIProvider {
   public readonly name = "OpenRouter";
 
+  private getHeaders(): Record<string, string> {
+    const apiKey = process.env.OPENROUTER_API_KEY;
+
+    if (!apiKey) {
+      throw new AIProviderError(
+        this.name,
+        503,
+        "OPENROUTER_API_KEY is not configured"
+      );
+    }
+
+    return {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    };
+  }
+
+  private async handleError(response: Response): Promise<never> {
+    const body = await response.text();
+
+    console.error(
+      `[AI] OpenRouter HTTP ${response.status}: ${body}`
+    );
+
+    throw new AIProviderError(
+      this.name,
+      response.status,
+      body || `OpenRouter request failed with HTTP ${response.status}`
+    );
+  }
+
   async generate(prompt: string): Promise<string> {
-    let response;
+    let response: Response;
 
     try {
-      response = await fetchWithTimeout(
-        "https://openrouter.ai/api/v1/chat/completions",
-        {
+      response = await fetchWithTimeout(OPENROUTER_URL, {
         method: "POST",
-        headers: {
-          Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-          "Content-Type": "application/json",
-        },
+        headers: this.getHeaders(),
         body: JSON.stringify({
-          model: "deepseek/deepseek-chat-v3-0324",
+          model: MODEL,
+          max_tokens: MAX_TOKENS,
           messages: [
             {
               role: "user",
@@ -26,67 +61,90 @@ class OpenRouterProvider implements AIProvider {
             },
           ],
         }),
-        }
-      );
-    } catch (error: any) {
+      });
+    } catch (error: unknown) {
+      if (error instanceof AIProviderError) {
+        throw error;
+      }
+
       throw new AIProviderError(
         this.name,
         503,
-        error?.message ?? "OpenRouter request failed"
+        error instanceof Error
+          ? error.message
+          : "OpenRouter request failed"
       );
     }
 
     if (!response.ok) {
-      const error = await response.text();
-      throw new AIProviderError(
-  this.name,
-  response.status,
-  error
-);
+      await this.handleError(response);
     }
 
     const data: any = await response.json();
+    const content = data.choices?.[0]?.message?.content;
 
-    return (
-      data.choices?.[0]?.message?.content ?? ""
-    );
-  }
-
-  async *generateStream(prompt: string): AsyncGenerator<string, void, unknown> {
-    let response;
-
-    try {
-      response = await fetchWithTimeout(
-        "https://openrouter.ai/api/v1/chat/completions",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            model: "deepseek/deepseek-chat-v3-0324",
-            stream: true,
-            messages: [{ role: "user", content: prompt }],
-          }),
-        }
-      );
-    } catch (error: any) {
+    if (typeof content !== "string" || !content.trim()) {
       throw new AIProviderError(
         this.name,
         503,
-        error?.message ?? "OpenRouter streaming request failed"
+        "OpenRouter returned an empty or invalid response"
       );
     }
 
-    if (!response.ok || !response.body) {
-      const error = response.body ? await response.text() : "No response body";
-      throw new AIProviderError(this.name, response.status, error);
+    return content;
+  }
+
+  async *generateStream(
+    prompt: string
+  ): AsyncGenerator<string, void, unknown> {
+   let response: Awaited<ReturnType<typeof fetch>>;
+
+    try {
+      response = await fetchWithTimeout(OPENROUTER_URL, {
+        method: "POST",
+        headers: this.getHeaders(),
+        body: JSON.stringify({
+          model: MODEL,
+          max_tokens: MAX_TOKENS,
+          stream: true,
+          messages: [
+            {
+              role: "user",
+              content: prompt,
+            },
+          ],
+        }),
+      });
+    } catch (error: unknown) {
+      if (error instanceof AIProviderError) {
+        throw error;
+      }
+
+      throw new AIProviderError(
+        this.name,
+        503,
+        error instanceof Error
+          ? error.message
+          : "OpenRouter streaming request failed"
+      );
     }
 
-    yield* parseOpenAIStyleSSE(response.body as unknown as NodeJS.ReadableStream);
+    if (!response.ok) {
+      await this.handleError(response);
+    }
+
+    if (!response.body) {
+      throw new AIProviderError(
+        this.name,
+        503,
+        "OpenRouter returned no response body"
+      );
+    }
+
+    yield* parseOpenAIStyleSSE(
+      response.body as unknown as NodeJS.ReadableStream
+    );
   }
 }
 
-export const openRouterProvider =
-  new OpenRouterProvider();
+export const openRouterProvider = new OpenRouterProvider();

@@ -11,8 +11,10 @@ export class AIProviderError extends Error {
 
   get retryable(): boolean {
     return (
+      this.status === 402 ||
+      this.status === 408 ||
       this.status === 429 ||
-      this.status === 503
+      this.status >= 500
     );
   }
 }

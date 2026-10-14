@@ -149,7 +149,7 @@ class InterviewService {
           userId,
         },
         include: {
-          feedback: true,
+          
           messages: {
             orderBy: {
               createdAt: 'asc',

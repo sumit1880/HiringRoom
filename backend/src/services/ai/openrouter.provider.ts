@@ -1,8 +1,11 @@
 
+import type { Response } from "node-fetch";
 import { AIProvider } from "./types.js";
 import { AIProviderError } from "./ai.error.js";
-import { fetchWithTimeout, parseOpenAIStyleSSE } from "./httpUtil.js";
-
+import {
+  fetchWithTimeout,
+  parseOpenAIStyleSSE,
+} from "./httpUtil.js";
 
 const OPENROUTER_URL =
   "https://openrouter.ai/api/v1/chat/completions";
@@ -30,7 +33,9 @@ class OpenRouterProvider implements AIProvider {
     };
   }
 
-  private async handleError(response: Response): Promise<never> {
+  private async handleError(
+    response: Response
+  ): Promise<never> {
     const body = await response.text();
 
     console.error(
@@ -40,7 +45,8 @@ class OpenRouterProvider implements AIProvider {
     throw new AIProviderError(
       this.name,
       response.status,
-      body || `OpenRouter request failed with HTTP ${response.status}`
+      body ||
+        `OpenRouter request failed with HTTP ${response.status}`
     );
   }
 
@@ -97,7 +103,7 @@ class OpenRouterProvider implements AIProvider {
   async *generateStream(
     prompt: string
   ): AsyncGenerator<string, void, unknown> {
-   let response: Awaited<ReturnType<typeof fetch>>;
+    let response: Response;
 
     try {
       response = await fetchWithTimeout(OPENROUTER_URL, {

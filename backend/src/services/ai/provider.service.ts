@@ -111,7 +111,10 @@ class ProviderService {
         return;
       } catch (error: any) {
         lastError = error;
-        console.error(`[AI] ${provider.name} streaming failed`);
+      console.error(
+  `[AI] ${provider.name} streaming failed:`,
+  error
+);
 
         if (startedYielding) {
           // Already committed to this provider and sent partial output

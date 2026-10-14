@@ -1,133 +1,91 @@
+import fetch, {
+  type RequestInit,
+  type Response,
+} from "node-fetch";
+import { env } from "../../config/env.js";
 
-import type { Response } from "node-fetch";
-import { AIProvider } from "./types.js";
-import { AIProviderError } from "./ai.error.js";
-import {
-  fetchWithTimeout,
-  parseOpenAIStyleSSE,
-} from "./httpUtil.js";
+/**
+ * Parses OpenAI-compatible Server-Sent Events and yields text fragments.
+ */
+export async function* parseOpenAIStyleSSE(
+  body: NodeJS.ReadableStream
+): AsyncGenerator<string, void, unknown> {
+  let buffer = "";
 
-const OPENROUTER_URL =
-  "https://openrouter.ai/api/v1/chat/completions";
+  for await (const rawChunk of body) {
+    buffer += rawChunk.toString("utf-8");
 
-const MODEL = "deepseek/deepseek-chat-v3-0324";
-const MAX_TOKENS = 2048;
+    const lines = buffer.split("\\n");
+    buffer = lines.pop() ?? "";
 
-class OpenRouterProvider implements AIProvider {
-  public readonly name = "OpenRouter";
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith("data:")) continue;
 
-  private getHeaders(): Record<string, string> {
-    return {
-      Authorization: `Bearer ${process.env.OPENROUTER_API_KEY}`,
-      "Content-Type": "application/json",
-    };
+      const data = trimmed.slice(5).trim();
+      if (data === "[DONE]") return;
+      if (!data) continue;
+
+      try {
+        const parsed: unknown = JSON.parse(data);
+        if (
+          typeof parsed === "object" &&
+          parsed !== null &&
+          "choices" in parsed
+        ) {
+          const choices = (parsed as {
+            choices?: Array<{ delta?: { content?: unknown } }>;
+          }).choices;
+          const delta = choices?.[0]?.delta?.content;
+
+          if (typeof delta === "string" && delta.length > 0) {
+            yield delta;
+          }
+        }
+      } catch (error) {
+        // Log malformed chunks for diagnosis instead of silently hiding them.
+        console.error("[AI] Failed to parse SSE data chunk:", error);
+      }
+    }
   }
 
-  private async handleError(
-    response: Response
-  ): Promise<never> {
-    const errorText = await response.text();
-
-    throw new AIProviderError(
-      this.name,
-      response.status,
-      errorText || `OpenRouter request failed: ${response.status}`
-    );
-  }
-
-  async generate(prompt: string): Promise<string> {
-    let response: Response;
-
-    try {
-      response = await fetchWithTimeout(OPENROUTER_URL, {
-        method: "POST",
-        headers: this.getHeaders(),
-        body: JSON.stringify({
-          model: MODEL,
-          max_tokens: MAX_TOKENS,
-          messages: [
-            {
-              role: "user",
-              content: prompt,
-            },
-          ],
-        }),
-      });
-    } catch (error: unknown) {
-      throw new AIProviderError(
-        this.name,
-        503,
-        error instanceof Error
-          ? error.message
-          : "OpenRouter request failed"
-      );
+  // Process a final line if the stream ends without a trailing newline.
+  const finalLine = buffer.trim();
+  if (finalLine.startsWith("data:")) {
+    const data = finalLine.slice(5).trim();
+    if (data && data !== "[DONE]") {
+      try {
+        const parsed = JSON.parse(data);
+        const delta = parsed?.choices?.[0]?.delta?.content;
+        if (typeof delta === "string" && delta.length > 0) {
+          yield delta;
+        }
+      } catch (error) {
+        console.error("[AI] Failed to parse final SSE data chunk:", error);
+      }
     }
-
-    if (!response.ok) {
-      await this.handleError(response);
-    }
-
-    const data: any = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-
-    if (typeof content !== "string") {
-      throw new AIProviderError(
-        this.name,
-        502,
-        "OpenRouter returned an invalid response."
-      );
-    }
-
-    return content;
-  }
-
-  async *generateStream(
-    prompt: string
-  ): AsyncGenerator<string, void, unknown> {
-    let response: Response;
-
-    try {
-      response = await fetchWithTimeout(OPENROUTER_URL, {
-        method: "POST",
-        headers: this.getHeaders(),
-        body: JSON.stringify({
-          model: MODEL,
-          max_tokens: MAX_TOKENS,
-          stream: true,
-          messages: [
-            {
-              role: "user",
-              content: prompt,
-            },
-          ],
-        }),
-      });
-    } catch (error: unknown) {
-      throw new AIProviderError(
-        this.name,
-        503,
-        error instanceof Error
-          ? error.message
-          : "OpenRouter streaming request failed"
-      );
-    }
-
-    if (!response.ok) {
-      await this.handleError(response);
-    }
-
-    if (!response.body) {
-      throw new AIProviderError(
-        this.name,
-        502,
-        "OpenRouter returned no response body."
-      );
-    }
-
-    yield* parseOpenAIStyleSSE(
-      response.body as unknown as NodeJS.ReadableStream
-    );
   }
 }
 
-export const openRouterProvider = new OpenRouterProvider();
+/**
+ * Fetch helper with a timeout for establishing the upstream HTTP response.
+ * Note: this timeout covers receiving the response headers, not the full
+ * lifetime of a streaming response body.
+ */
+export async function fetchWithTimeout(
+  url: string,
+  options: RequestInit,
+  timeoutMs: number = env.AI_PROVIDER_TIMEOUT_MS
+): Promise<Response> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(url, {
+      ...options,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timer);
+  }
+}
